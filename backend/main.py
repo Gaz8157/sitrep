@@ -497,6 +497,7 @@ async def auth_middleware(request: Request, call_next):
         )
     PUBLIC_PATHS = {"/api/health", "/api/auth/login", "/api/settings/public",
                     "/api/auth/forgot-password", "/api/auth/reset-password",
+                    "/api/auth/2fa/verify",
                     "/api/auth/discord", "/api/auth/discord/callback",
                     "/api/auth/refresh", "/api/auth/logout",
                     "/api/setup/status", "/api/setup/complete"}
@@ -868,6 +869,17 @@ async def login(request: Request, response: Response):
         record_failed_login(client_ip)
         return JSONResponse({"error": "Invalid credentials"}, status_code=401)
     clear_failed_login(client_ip)
+    # If 2FA is enabled, issue a short-lived pending token instead of auth cookies
+    if user.get("totp_secret") and user.get("totp_enabled"):
+        pending_token = secrets.token_urlsafe(32)
+        _pending_2fa[pending_token] = {
+            "username": user["username"],
+            "role": user["role"],
+            "remember": remember,
+            "ua": request.headers.get("user-agent", ""),
+            "expires": time.time() + 300,
+        }
+        return {"requires_2fa": True, "pending_token": pending_token}
     ua = request.headers.get("user-agent", "")
     set_auth_cookies(response, user["username"], user["role"], remember, ua)
     return {"username": user["username"], "role": user["role"]}
@@ -878,8 +890,13 @@ async def auth_me(request: Request):
     try:
         data = load_panel_users(Path(get_default_server()["data_dir"]))
         full = next((x for x in data["users"] if x["username"] == u["username"]), {})
+        extras = {}
         if full.get("email"):
-            return {**u, "email": full["email"]}
+            extras["email"] = full["email"]
+        if full.get("totp_enabled"):
+            extras["totp_enabled"] = True
+        if extras:
+            return {**u, **extras}
     except Exception:
         pass
     return u
@@ -997,6 +1014,111 @@ async def reset_password_endpoint(body: ResetPasswordBody):
     del tokens[body.token]
     _save_reset_tokens(tokens)
     return {"message": "Password reset successfully. You can now log in."}
+
+# === TWO-FACTOR AUTH (TOTP) ===
+
+import pyotp, qrcode, io, base64 as _b64
+
+_pending_2fa: dict = {}  # pending_token -> {username, role, remember, ua, expires}
+
+def _prune_pending_2fa():
+    now = time.time()
+    expired = [k for k, v in _pending_2fa.items() if v["expires"] < now]
+    for k in expired:
+        del _pending_2fa[k]
+
+def _verify_totp(user: dict, code: str) -> bool:
+    secret = user.get("totp_secret", "")
+    if not secret:
+        return False
+    totp = pyotp.TOTP(secret)
+    if totp.verify(code, valid_window=1):
+        return True
+    # Check backup codes
+    code_clean = code.replace("-", "").upper()
+    backup = user.get("totp_backup_codes", [])
+    for i, stored in enumerate(backup):
+        if secrets.compare_digest(stored, hashlib.sha256(code_clean.encode()).hexdigest()):
+            user["totp_backup_codes"].pop(i)
+            return True
+    return False
+
+class Totp2FABody(BaseModel):
+    pending_token: str
+    code: str
+
+class TotpEnableBody(BaseModel):
+    secret: str
+    code: str
+
+class TotpDisableBody(BaseModel):
+    code: str
+
+@app.get("/api/auth/2fa/setup")
+async def totp_setup(request: Request):
+    user = current_user(request)
+    secret = pyotp.random_base32()
+    totp = pyotp.TOTP(secret)
+    uri = totp.provisioning_uri(name=user["username"], issuer_name="SITREP")
+    img = qrcode.make(uri)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    qr_b64 = _b64.b64encode(buf.getvalue()).decode()
+    return {"secret": secret, "qr": f"data:image/png;base64,{qr_b64}"}
+
+@app.post("/api/auth/2fa/enable")
+async def totp_enable(body: TotpEnableBody, request: Request):
+    user_info = current_user(request)
+    if not pyotp.TOTP(body.secret).verify(body.code, valid_window=1):
+        return JSONResponse({"error": "Invalid code — try again"}, status_code=400)
+    # Generate 8 backup codes
+    raw_codes = [secrets.token_hex(4).upper() + "-" + secrets.token_hex(4).upper() for _ in range(8)]
+    hashed_codes = [hashlib.sha256(c.replace("-","").encode()).hexdigest() for c in raw_codes]
+    data_dir = Path(get_default_server()["data_dir"])
+    data = load_panel_users(data_dir)
+    for u in data["users"]:
+        if u["username"] == user_info["username"]:
+            u["totp_secret"] = body.secret
+            u["totp_enabled"] = True
+            u["totp_backup_codes"] = hashed_codes
+            u["tokens_valid_after"] = time.time()
+            break
+    save_panel_users(data, data_dir)
+    return {"message": "2FA enabled", "backup_codes": raw_codes}
+
+@app.post("/api/auth/2fa/disable")
+async def totp_disable(body: TotpDisableBody, request: Request):
+    user_info = current_user(request)
+    data_dir = Path(get_default_server()["data_dir"])
+    data = load_panel_users(data_dir)
+    u = next((x for x in data["users"] if x["username"] == user_info["username"]), None)
+    if not u:
+        return JSONResponse({"error": "User not found"}, status_code=404)
+    if not _verify_totp(u, body.code):
+        return JSONResponse({"error": "Invalid code"}, status_code=400)
+    u.pop("totp_secret", None)
+    u.pop("totp_backup_codes", None)
+    u["totp_enabled"] = False
+    u["tokens_valid_after"] = time.time()
+    save_panel_users(data, data_dir)
+    return {"message": "2FA disabled"}
+
+@app.post("/api/auth/2fa/verify")
+async def totp_verify(body: Totp2FABody, response: Response):
+    _prune_pending_2fa()
+    entry = _pending_2fa.get(body.pending_token)
+    if not entry:
+        return JSONResponse({"error": "Session expired — please log in again"}, status_code=401)
+    data_dir = Path(get_default_server()["data_dir"])
+    data = load_panel_users(data_dir)
+    u = next((x for x in data["users"] if x["username"] == entry["username"]), None)
+    if not u or not _verify_totp(u, body.code):
+        return JSONResponse({"error": "Invalid code"}, status_code=401)
+    # If a backup code was used, save updated backup codes
+    save_panel_users(data, data_dir)
+    del _pending_2fa[body.pending_token]
+    set_auth_cookies(response, entry["username"], entry["role"], entry["remember"], entry["ua"])
+    return {"username": entry["username"], "role": entry["role"]}
 
 # === DISCORD OAUTH ===
 

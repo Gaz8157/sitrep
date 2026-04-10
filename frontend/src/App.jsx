@@ -159,7 +159,7 @@ function ResetPassword({token,onDone}){const{C,sz}=useT();const[p,setP]=useState
     </div>
   </div>}
 
-function Login({onLogin}){const{C,sz}=useT();const[u,setU]=useState('');const[p,setP]=useState('');const[err,setErr]=useState('');const[loading,setLoading]=useState(false);const[remember,setRemember]=useState(false);const[view,setView]=useState('login');const[fpEmail,setFpEmail]=useState('');const[fpMsg,setFpMsg]=useState('');const[fpErr,setFpErr]=useState('');const[fpLoading,setFpLoading]=useState(false)
+function Login({onLogin}){const{C,sz}=useT();const[u,setU]=useState('');const[p,setP]=useState('');const[err,setErr]=useState('');const[loading,setLoading]=useState(false);const[remember,setRemember]=useState(false);const[view,setView]=useState('login');const[fpEmail,setFpEmail]=useState('');const[fpMsg,setFpMsg]=useState('');const[fpErr,setFpErr]=useState('');const[fpLoading,setFpLoading]=useState(false);const[pendingToken,setPendingToken]=useState('');const[totpCode,setTotpCode]=useState('');const[totpErr,setTotpErr]=useState('');const[totpLoading,setTotpLoading]=useState(false)
   const{data:settings}=useFetchOnce(`${API}/settings/public`)
   const discordEnabled=!!settings?.discord_client_id
   useEffect(()=>{
@@ -174,7 +174,12 @@ function Login({onLogin}){const{C,sz}=useT();const[u,setU]=useState('');const[p,
   const submit=async e=>{e.preventDefault();if(!u||!p)return;setLoading(true);setErr('')
     try{const r=await fetch(`${API}/auth/login`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p,remember})});const d=await r.json()
       if(d.error){setErr(d.error);setLoading(false);return}
+      if(d.requires_2fa){setPendingToken(d.pending_token);setView('totp');setLoading(false);return}
       onLogin({username:d.username,role:d.role})}catch{setErr('Connection error');setLoading(false)}}
+  const submitTotp=async e=>{e.preventDefault();if(!totpCode)return;setTotpLoading(true);setTotpErr('')
+    try{const r=await fetch(`${API}/auth/2fa/verify`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pending_token:pendingToken,code:totpCode.replace(/\s/g,'')})});const d=await r.json()
+      if(d.error){setTotpErr(d.error);setTotpLoading(false);return}
+      onLogin({username:d.username,role:d.role})}catch{setTotpErr('Connection error');setTotpLoading(false)}}
   const submitFp=async e=>{e.preventDefault();if(!fpEmail)return;setFpLoading(true);setFpErr('');setFpMsg('')
     try{const r=await fetch(`${API}/auth/forgot-password`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:fpEmail})});const d=await r.json()
       if(d.error){setFpErr(d.error);setFpLoading(false);return}
@@ -186,7 +191,16 @@ function Login({onLogin}){const{C,sz}=useT();const[u,setU]=useState('');const[p,
         <div className="font-bold uppercase tracking-widest" style={{color:C.textMuted,fontSize:sz.stat}}>Arma Reforger Server Panel <span className="px-1.5 py-0.5 rounded font-black" style={{background:C.orange+'22',color:C.orange,fontSize:sz.stat-1,border:`1px solid ${C.orange}40`}}>BETA</span></div>
       </div>
       <div className="rounded-2xl p-8" style={{background:C.bgCard,border:`1px solid ${C.border}`}}>
-        {view==='forgot'?<>
+        {view==='totp'?<>
+          <div className="font-black mb-1" style={{color:C.textBright,fontSize:sz.base+2}}>Two-Factor Authentication</div>
+          <div className="mb-4" style={{color:C.textDim,fontSize:sz.base}}>Enter the 6-digit code from your authenticator app, or a backup code.</div>
+          <form onSubmit={submitTotp}>
+            <input value={totpCode} onChange={e=>setTotpCode(e.target.value)} placeholder="000000" maxLength={8} autoFocus autoComplete="one-time-code" inputMode="numeric" className="w-full rounded-lg px-3 py-3 outline-none font-mono text-center mb-3" style={{background:C.bgInput,border:`1px solid ${C.border}`,color:C.text,fontSize:sz.base+4,letterSpacing:'0.3em'}}/>
+            {totpErr&&<div className="mb-3 px-3 py-2.5 rounded-lg font-bold" style={{background:C.redBg,color:C.red,border:`1px solid ${C.redBorder}`,fontSize:sz.stat}}>{totpErr}</div>}
+            <button type="submit" disabled={totpLoading} className="w-full py-3 rounded-xl font-black uppercase tracking-widest cursor-pointer disabled:opacity-50 transition-all mb-3" style={{background:C.accent,color:'#000',fontSize:sz.base}}>{totpLoading?'Verifying...':'Verify'}</button>
+          </form>
+          <button onClick={()=>{setView('login');setPendingToken('');setTotpCode('');setTotpErr('')}} className="w-full py-2 rounded-xl font-bold cursor-pointer" style={{background:'transparent',color:C.textMuted,fontSize:sz.base}}>Back to Sign In</button>
+        </>:view==='forgot'?<>
           <div className="font-black mb-1" style={{color:C.textBright,fontSize:sz.base+2}}>Reset password</div>
           <div className="mb-4" style={{color:C.textDim,fontSize:sz.base}}>Enter your email address and we'll send you a reset link.</div>
           {fpMsg?<div className="py-4 font-bold text-center" style={{color:C.accent,fontSize:sz.base}}>{fpMsg}</div>
@@ -4462,9 +4476,22 @@ function SecurityTab({authUser, toast}) {
   const [show, setShow] = useState({current:false, next:false, confirm:false})
   const [email, setEmail] = useState('')
   const [emailSaving, setEmailSaving] = useState(false)
-  const {data:meData}=useFetchOnce(`${API}/auth/me`)
+  const {data:meData,reload:reloadMe}=useFetchOnce(`${API}/auth/me`)
   useEffect(()=>{if(meData?.email)setEmail(meData.email)},[meData])
   const saveEmail=async()=>{setEmailSaving(true);try{const r=await fetch(`${API}/users/update`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:authUser.username,email})});const d=await r.json();if(d.error){toast(d.error,'danger')}else{toast('Email saved')}}catch{toast('Connection error','danger')}setEmailSaving(false)}
+  // 2FA state
+  const [twoFaEnabled,setTwoFaEnabled]=useState(false)
+  const [twoFaView,setTwoFaView]=useState('idle') // idle | setup | disable | backup
+  const [twoFaSecret,setTwoFaSecret]=useState('')
+  const [twoFaQr,setTwoFaQr]=useState('')
+  const [twoFaCode,setTwoFaCode]=useState('')
+  const [twoFaErr,setTwoFaErr]=useState('')
+  const [twoFaLoading,setTwoFaLoading]=useState(false)
+  const [backupCodes,setBackupCodes]=useState([])
+  useEffect(()=>{if(meData?.totp_enabled)setTwoFaEnabled(true)},[meData])
+  const startSetup=async()=>{setTwoFaLoading(true);setTwoFaErr('');try{const r=await fetch(`${API}/auth/2fa/setup`);const d=await r.json();if(d.error){setTwoFaErr(d.error);setTwoFaLoading(false);return};setTwoFaSecret(d.secret);setTwoFaQr(d.qr);setTwoFaView('setup')}catch{setTwoFaErr('Connection error')}setTwoFaLoading(false)}
+  const confirmEnable=async()=>{setTwoFaLoading(true);setTwoFaErr('');try{const r=await fetch(`${API}/auth/2fa/enable`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({secret:twoFaSecret,code:twoFaCode.replace(/\s/g,'')})});const d=await r.json();if(d.error){setTwoFaErr(d.error);setTwoFaLoading(false);return};setBackupCodes(d.backup_codes);setTwoFaEnabled(true);setTwoFaView('backup');reloadMe()}catch{setTwoFaErr('Connection error')}setTwoFaLoading(false)}
+  const confirmDisable=async()=>{setTwoFaLoading(true);setTwoFaErr('');try{const r=await fetch(`${API}/auth/2fa/disable`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:twoFaCode.replace(/\s/g,'')})});const d=await r.json();if(d.error){setTwoFaErr(d.error);setTwoFaLoading(false);return};setTwoFaEnabled(false);setTwoFaView('idle');setTwoFaCode('');reloadMe()}catch{setTwoFaErr('Connection error')}setTwoFaLoading(false)}
 
   const pwStrength = pw => {
     if (!pw) return 0
@@ -4520,6 +4547,44 @@ function SecurityTab({authUser, toast}) {
         <input value={email} onChange={e=>setEmail(e.target.value)} type="email" placeholder="your@email.com" className="flex-1 rounded-lg px-3 py-2 outline-none font-mono" style={{background:C.bgInput,border:`1px solid ${C.border}`,color:C.text,fontSize:sz.input}}/>
         <Btn onClick={saveEmail} disabled={emailSaving}>{emailSaving?'Saving…':'Save'}</Btn>
       </div>
+      <div style={{fontWeight:900,color:C.textBright,fontSize:sz.base+2,marginBottom:4,marginTop:8}}>Two-Factor Authentication</div>
+      <div style={{color:C.textMuted,fontSize:sz.stat,marginBottom:12}}>{twoFaEnabled?'2FA is enabled on your account.':'Add an extra layer of security using an authenticator app.'}</div>
+      {twoFaView==='idle'&&<div style={{maxWidth:380,marginBottom:28}}>
+        {twoFaEnabled
+          ?<Btn v="danger" onClick={()=>{setTwoFaView('disable');setTwoFaCode('');setTwoFaErr('')}}>Disable 2FA</Btn>
+          :<Btn onClick={startSetup} disabled={twoFaLoading}>{twoFaLoading?'Loading...':'Enable 2FA'}</Btn>}
+        {twoFaErr&&<div className="mt-2 px-3 py-2 rounded-lg font-bold" style={{background:C.redBg,color:C.red,border:`1px solid ${C.redBorder}`,fontSize:sz.stat}}>{twoFaErr}</div>}
+      </div>}
+      {twoFaView==='setup'&&<div style={{maxWidth:380,marginBottom:28}}>
+        <div style={{color:C.textDim,fontSize:sz.base,marginBottom:12}}>Scan this QR code with <strong>Google Authenticator</strong>, <strong>Authy</strong>, or any TOTP app.</div>
+        <img src={twoFaQr} alt="QR Code" style={{width:180,height:180,borderRadius:8,marginBottom:12,display:'block'}}/>
+        <div style={{color:C.textMuted,fontSize:sz.stat,marginBottom:4}}>Or enter this key manually:</div>
+        <div className="font-mono px-3 py-2 rounded-lg mb-4 select-all" style={{background:C.bgInput,color:C.accent,fontSize:sz.stat,letterSpacing:'0.1em'}}>{twoFaSecret}</div>
+        <div style={{color:C.textDim,fontSize:sz.base,marginBottom:8}}>Enter the 6-digit code from your app to confirm:</div>
+        <input value={twoFaCode} onChange={e=>setTwoFaCode(e.target.value)} placeholder="000000" maxLength={6} inputMode="numeric" className="w-full rounded-lg px-3 py-2.5 outline-none font-mono text-center mb-3" style={{background:C.bgInput,border:`1px solid ${C.border}`,color:C.text,fontSize:sz.base+2,letterSpacing:'0.3em'}}/>
+        {twoFaErr&&<div className="mb-3 px-3 py-2 rounded-lg font-bold" style={{background:C.redBg,color:C.red,border:`1px solid ${C.redBorder}`,fontSize:sz.stat}}>{twoFaErr}</div>}
+        <div className="flex gap-2">
+          <Btn onClick={confirmEnable} disabled={twoFaLoading||twoFaCode.length<6}>{twoFaLoading?'Verifying...':'Confirm & Enable'}</Btn>
+          <Btn v="ghost" onClick={()=>{setTwoFaView('idle');setTwoFaCode('');setTwoFaErr('')}}>Cancel</Btn>
+        </div>
+      </div>}
+      {twoFaView==='backup'&&<div style={{maxWidth:380,marginBottom:28}}>
+        <div className="px-4 py-3 rounded-xl mb-4" style={{background:C.orange+'18',border:`1px solid ${C.orange}40`}}>
+          <div style={{fontWeight:700,color:C.orange,fontSize:sz.base,marginBottom:4}}>Save your backup codes</div>
+          <div style={{color:C.textDim,fontSize:sz.stat}}>These codes let you sign in if you lose your authenticator. Each code can only be used once. Store them somewhere safe.</div>
+        </div>
+        <div className="grid grid-cols-2 gap-2 mb-4">{backupCodes.map((c,i)=><div key={i} className="font-mono px-3 py-2 rounded-lg text-center" style={{background:C.bgInput,color:C.text,fontSize:sz.stat,border:`1px solid ${C.border}`}}>{c}</div>)}</div>
+        <Btn onClick={()=>setTwoFaView('idle')}>Done</Btn>
+      </div>}
+      {twoFaView==='disable'&&<div style={{maxWidth:380,marginBottom:28}}>
+        <div style={{color:C.textDim,fontSize:sz.base,marginBottom:12}}>Enter a code from your authenticator app (or a backup code) to disable 2FA.</div>
+        <input value={twoFaCode} onChange={e=>setTwoFaCode(e.target.value)} placeholder="000000" maxLength={11} inputMode="numeric" className="w-full rounded-lg px-3 py-2.5 outline-none font-mono text-center mb-3" style={{background:C.bgInput,border:`1px solid ${C.border}`,color:C.text,fontSize:sz.base+2,letterSpacing:'0.3em'}}/>
+        {twoFaErr&&<div className="mb-3 px-3 py-2 rounded-lg font-bold" style={{background:C.redBg,color:C.red,border:`1px solid ${C.redBorder}`,fontSize:sz.stat}}>{twoFaErr}</div>}
+        <div className="flex gap-2">
+          <Btn v="danger" onClick={confirmDisable} disabled={twoFaLoading||!twoFaCode}>{twoFaLoading?'Disabling...':'Disable 2FA'}</Btn>
+          <Btn v="ghost" onClick={()=>{setTwoFaView('idle');setTwoFaCode('');setTwoFaErr('')}}>Cancel</Btn>
+        </div>
+      </div>}
       <div style={{fontWeight:900,color:C.textBright,fontSize:sz.base+2,marginBottom:4}}>Change Password</div>
       <div style={{color:C.textMuted,fontSize:sz.stat,marginBottom:20}}>Changing your password will sign out all other active sessions.</div>
       <div style={{display:'flex',flexDirection:'column',gap:14,maxWidth:380}}>
