@@ -2163,14 +2163,30 @@ def _backups_dir(request: Request) -> Path:
     return srv_profile_dir(request) / "profile" / "saves_backup"
 
 
+def _server_ports(server: dict) -> list:
+    """Return the (port, proto) list for a server.
+
+    Arma Reforger query port is bindPort + 15776 (e.g. 2001 → 17777).
+    RCON port is read from config.json, defaulting to 19999.
+    """
+    game_port = server["port"]
+    query_port = game_port + 15776
+    rcon_port = 19999
+    try:
+        cfg = json.loads(Path(server["config_path"]).read_text())
+        rcon_port = cfg.get("rcon", {}).get("port", 19999)
+    except Exception:
+        pass
+    return [(game_port, "udp"), (query_port, "udp"), (rcon_port, "tcp")]
+
+
 def _manage_ports(server: dict, action: str) -> dict:
     """Open, renew, or close firewall (ufw) and UPnP router port mappings.
 
     action: "open" | "renew" | "close"
     Returns {"ufw": {spec: status}, "upnp": {available, external_ip, mappings}}
     """
-    port = server["port"]
-    ports = [(port, "udp"), (port + 1, "udp"), (port, "tcp")]
+    ports = _server_ports(server)
 
     # --- ufw ---
     ufw_result = {}
@@ -2231,8 +2247,7 @@ def _port_status(server: dict) -> dict:
 
     Returns same structure as _manage_ports.
     """
-    port = server["port"]
-    ports = [(port, "udp"), (port + 1, "udp"), (port, "tcp")]
+    ports = _server_ports(server)
 
     # ufw: parse current status output
     ufw_result = {}
@@ -2242,9 +2257,11 @@ def _port_status(server: dict) -> dict:
             capture_output=True, text=True, timeout=10
         )
         status_text = r.stdout.lower()
+        # Check each line start so "2001/udp" doesn't match "12001/udp"
+        lines = status_text.splitlines()
         for p, proto in ports:
             spec = f"{p}/{proto}"
-            ufw_result[spec] = "allowed" if spec in status_text else "not set"
+            ufw_result[spec] = "allowed" if any(line.startswith(spec) for line in lines) else "not set"
     except Exception as e:
         for p, proto in ports:
             ufw_result[f"{p}/{proto}"] = f"error: {e}"
