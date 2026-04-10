@@ -134,6 +134,39 @@ sudo systemctl restart sitrep-api
 
 ---
 
+## Discord Login (Optional)
+
+Users can sign in with Discord instead of a username and password. Their Discord account must be linked to a panel user by an owner first.
+
+### Step 1 — Create a Discord application
+
+1. Go to **https://discord.com/developers/applications**
+2. Click **New Application** and give it a name (e.g. `My SITREP Panel`)
+3. Go to **OAuth2 → General**
+4. Copy your **Client ID** and **Client Secret**
+5. Under **Redirects**, add:
+   ```
+   http://YOUR_SERVER_IP:8000/api/auth/discord/callback
+   ```
+   Replace with your actual `PANEL_URL` — must match exactly.
+
+### Step 2 — Add credentials to the panel
+
+In the panel go to **Settings → Discord** and enter:
+- **Client ID** — from your Discord application
+- **Client Secret** — from your Discord application
+- **Redirect URI** — `http://YOUR_SERVER_IP:8000/api/auth/discord/callback`
+
+Save. The Discord login button will appear on the login page immediately.
+
+### Step 3 — Link Discord accounts to panel users
+
+As an owner, go to **Settings → Users**, click a user, and use **Link Discord** to associate their Discord account. They can then log in with the Discord button.
+
+> Users without a linked Discord account will see an error if they try to use Discord login.
+
+---
+
 ## AI Game Master (Optional)
 
 The AI GM tab lets an LLM autonomously manage the Game Master role — spawning enemies, reacting to players, and adjusting difficulty in real time. It requires a separate bridge process and a compatible Arma Reforger mod.
@@ -340,9 +373,9 @@ journalctl -u sitrep-api -n 50 --no-pager
 
 **Locked out — forgot password / can't log in**
 
-If you have SSH access to the server, reset the owner account password directly:
+If you have SSH access to the server, reset the owner account password directly. You will be prompted for your system password:
 ```bash
-cd /opt/panel/backend && venv/bin/python3 -c "import json,hashlib,secrets;f='data/panel_users.json';d=json.load(open(f));u=next(x for x in d['users'] if x.get('role')=='owner');s=secrets.token_hex(16);h=hashlib.pbkdf2_hmac('sha256',b'admin123',s.encode(),100000).hex();u['password_hash']=s+':'+h;u.pop('salt',None);json.dump(d,open(f,'w'),indent=2);print('Reset',u['username'],'to admin123')"
+sudo -v && cd /opt/panel/backend && venv/bin/python3 -c "import json,hashlib,secrets;f='data/panel_users.json';d=json.load(open(f));u=next(x for x in d['users'] if x.get('role')=='owner');s=secrets.token_hex(16);h=hashlib.pbkdf2_hmac('sha256',b'admin123',s.encode(),100000).hex();u['password_hash']=s+':'+h;u.pop('salt',None);json.dump(d,open(f,'w'),indent=2);print('Reset',u['username'],'to admin123')"
 ```
 Then log in with your owner username and `admin123`, and change your password in Settings.
 
