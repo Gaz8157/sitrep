@@ -376,6 +376,26 @@ Windows users can run the panel inside WSL 2:
 
 > GPU stats require NVIDIA CUDA on WSL setup. The panel works without it but GPU fields will show zero.
 
+### Starting the panel on Windows
+
+The panel service starts automatically whenever WSL boots — you don't need to do anything after a reboot.
+
+To launch it quickly from Windows, create a shortcut on your desktop:
+
+1. Right-click the desktop → **New → Shortcut**
+2. Paste this as the location:
+   ```
+   wsl.exe bash -c "sudo systemctl start sitrep-api; sleep 2" && start http://localhost:8000
+   ```
+3. Name it **SITREP** and click Finish
+
+Double-clicking the shortcut will start WSL, ensure the panel is running, and open it in your browser.
+
+To check the panel is running from inside WSL at any time:
+```bash
+sudo systemctl status sitrep-api
+```
+
 ---
 
 ## Uninstall
