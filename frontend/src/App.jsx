@@ -1541,9 +1541,11 @@ function DynVal({label,val,onChange}){const{C,sz}=useT();const[open,setOpen]=use
 }
 function DynObj({obj,onChange}){return <>{Object.entries(obj).map(([k,v])=><DynVal key={k} label={k} val={v} onChange={nv=>onChange({...obj,[k]:nv})}/>)}</>}
 
+const DEFAULT_SERVER_CONFIG={bindAddress:"",bindPort:2001,publicAddress:"",publicPort:2001,game:{name:"My Arma Server",password:"",passwordAdmin:"",maxPlayers:64,visible:true,crossPlatform:true,scenarioId:"{59AD59368755F41A}Missions/21_GM_Eden.conf",gameProperties:{serverMaxViewDistance:1600,networkViewDistance:500,disableThirdPerson:false,battlEye:true,persistence:{autoSaveInterval:5,hiveId:0}}},operating:{lobbyPlayerSynchronise:true,playerSaveTime:120,aiLimit:-1,disableAI:false},rcon:{address:"127.0.0.1",port:19999,password:"",permission:"admin",maxClients:16}}
+
 function Config({toast}){const{C,sz}=useT();const{data:initial,loading:mainLoading,reload:reloadMain}=useFetchOnce(`${API}/config`);const{data:cfgList,loading:listLoading}=useFetchOnce(`${API}/configs/list`);const[sel,setSel]=useState(null);const[raw,setRaw]=useState('');const[dynObj,setDynObj]=useState(null);const[dirty,setDirty]=useState(false);const[mode,setMode]=useState('visual');const[fileLoading,setFileLoading]=useState(false);const[pwVis,setPwVis]=useState({})
   const isMain=sel?.key==='main'
-  useEffect(()=>{if(initial&&isMain&&!dirty){const s=JSON.stringify(initial,null,2);setRaw(s);setDynObj(JSON.parse(s))}},[initial,isMain])
+  useEffect(()=>{if(initial!=null&&isMain&&!dirty){const effective=Object.keys(initial).length===0?DEFAULT_SERVER_CONFIG:initial;const s=JSON.stringify(effective,null,2);setRaw(s);setDynObj(JSON.parse(s))}},[initial,isMain])
   useEffect(()=>{if(!sel||isMain)return;let cancelled=false;setFileLoading(true);setDirty(false);fetch(`${API}/files/read?path=${encodeURIComponent(sel.path)}`,{headers:authHeaders()}).then(r=>r.json()).then(d=>{if(cancelled)return;if(d.content){setRaw(d.content);try{setDynObj(JSON.parse(d.content))}catch{setDynObj(null)}};setFileLoading(false)}).catch(()=>{if(!cancelled)setFileLoading(false)});return()=>{cancelled=true}},[sel?.path])
   const parsed=useMemo(()=>{try{return JSON.parse(raw)}catch{return null}},[raw])
   const save=async()=>{if(!parsed){toast('Invalid JSON','danger');return};let r;if(isMain){r=await put(`${API}/config`,parsed)}else{r=await put(`${API}/files/write`,{path:sel.path,content:JSON.stringify(parsed,null,2)})};if(r.error){toast(r.error,'danger');return};toast('Saved');setDirty(false);if(isMain)reloadMain()}

@@ -83,7 +83,8 @@ fi
 info "Node $(node --version), npm $(npm --version)"
 
 # SteamCMD
-if ! command -v steamcmd &>/dev/null && [[ ! -f /usr/games/steamcmd ]]; then
+STEAMCMD="/usr/games/steamcmd"
+if ! command -v steamcmd &>/dev/null && [[ ! -f "$STEAMCMD" ]]; then
     info "Installing SteamCMD..."
     add-apt-repository multiverse -y >/dev/null 2>&1
     dpkg --add-architecture i386
@@ -92,6 +93,98 @@ if ! command -v steamcmd &>/dev/null && [[ ! -f /usr/games/steamcmd ]]; then
     echo "steamcmd steam/license note ''" | debconf-set-selections
     apt-get install -y -qq steamcmd
     success "SteamCMD installed"
+fi
+# Resolve actual steamcmd binary path
+if [[ ! -f "$STEAMCMD" ]] && command -v steamcmd &>/dev/null; then
+    STEAMCMD="$(command -v steamcmd)"
+fi
+[[ -f "$STEAMCMD" ]] || die "SteamCMD not found after install. Check logs above."
+
+# ── Arma Reforger dedicated server ───────────────────────────────────────────
+ARMA_DIR="/opt/arma-server"
+ARMA_SERVICE="arma-reforger"
+info "Installing / updating Arma Reforger dedicated server (this may take a while)..."
+mkdir -p "$ARMA_DIR"
+chown "$SERVICE_USER":"$SERVICE_USER" "$ARMA_DIR"
+sudo -u "$SERVICE_USER" "$STEAMCMD" \
+    +force_install_dir "$ARMA_DIR" \
+    +login anonymous \
+    +app_update 1874900 validate \
+    +quit
+success "Arma Reforger server ready at $ARMA_DIR"
+
+# Create profile and log directories
+sudo -u "$SERVICE_USER" mkdir -p \
+    "$ARMA_DIR/profile/logs" \
+    "$ARMA_DIR/profile/addons"
+
+# Write a starter config.json if one doesn't exist
+if [[ ! -f "$ARMA_DIR/config.json" ]]; then
+    info "Creating default server config..."
+    sudo -u "$SERVICE_USER" tee "$ARMA_DIR/config.json" > /dev/null << 'ARMACFG'
+{
+  "bindAddress": "",
+  "bindPort": 2001,
+  "publicAddress": "",
+  "publicPort": 2001,
+  "game": {
+    "name": "My Arma Server",
+    "password": "",
+    "passwordAdmin": "",
+    "scenarioId": "{59AD59368755F41A}Missions/21_GM_Eden.conf",
+    "maxPlayers": 64,
+    "visible": true,
+    "crossPlatform": true,
+    "gameProperties": {
+      "serverMaxViewDistance": 1600,
+      "networkViewDistance": 500,
+      "disableThirdPerson": false,
+      "battlEye": true,
+      "persistence": {
+        "autoSaveInterval": 5,
+        "hiveId": 0
+      }
+    }
+  },
+  "operating": {
+    "lobbyPlayerSynchronise": true,
+    "playerSaveTime": 120,
+    "aiLimit": -1,
+    "disableAI": false
+  },
+  "rcon": {
+    "address": "127.0.0.1",
+    "port": 19999,
+    "password": "changeme",
+    "permission": "admin",
+    "maxClients": 16
+  }
+}
+ARMACFG
+    success "Default config.json created"
+fi
+
+# Create the arma-reforger systemd service if it doesn't exist
+if [[ ! -f "/etc/systemd/system/${ARMA_SERVICE}.service" ]]; then
+    info "Creating arma-reforger systemd service..."
+    cat > "/etc/systemd/system/${ARMA_SERVICE}.service" << EOF
+[Unit]
+Description=Arma Reforger Dedicated Server
+After=network.target
+
+[Service]
+User=${SERVICE_USER}
+WorkingDirectory=${ARMA_DIR}
+ExecStart=${ARMA_DIR}/ArmaReforgerServer -config ${ARMA_DIR}/config.json -profile ${ARMA_DIR}/profile
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload
+    systemctl enable "$ARMA_SERVICE"
+    success "arma-reforger service created (start it from the panel)"
 fi
 
 # ── Clone / update ────────────────────────────────────────────────────────────

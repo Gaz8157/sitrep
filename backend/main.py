@@ -724,6 +724,7 @@ def read_config(config_path: Path = CONFIG_PATH):
 
 def write_config(data, config_path: Path = CONFIG_PATH):
     try:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
         if config_path.exists():
             shutil.copy2(config_path, config_path.with_suffix('.json.bak'))
         config_path.write_text(json.dumps(data, indent=2))
