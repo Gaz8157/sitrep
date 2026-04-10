@@ -1,0 +1,24 @@
+{
+  "name": "SITREP — Arma Reforger Panel",
+  "short_name": "SITREP",
+  "description": "Arma Reforger server management panel",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "theme_color": "#06090d",
+  "background_color": "#06090d",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

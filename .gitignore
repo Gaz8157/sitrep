@@ -1,0 +1,36 @@
+# Runtime data — never commit these
+backend/data/
+backend/ws_index.json
+servers/*/data/
+servers/*/profile/
+
+# Python
+backend/venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/.pytest_cache/
+backend/**/.pytest_cache/
+*.pyc
+*.pyo
+
+# Node / build artifacts
+frontend/node_modules/
+frontend/dist/
+
+# Environment — use .env.example instead
+.env
+
+# Backup files
+*.bak
+*.tmp
+
+# Private / dev-only content
+MisfitsAdminTools/
+ServerAdminTools/
+docs/superpowers/
+.superpowers/
+SITREP_HANDOFF.md
+
+# OS
+.DS_Store
+Thumbs.db
