@@ -103,15 +103,39 @@ fi
 # ── Arma Reforger dedicated server ───────────────────────────────────────────
 ARMA_DIR="/opt/arma-server"
 ARMA_SERVICE="arma-reforger"
-info "Installing / updating Arma Reforger dedicated server (this may take a while)..."
+
 mkdir -p "$ARMA_DIR"
 chown "$SERVICE_USER":"$SERVICE_USER" "$ARMA_DIR"
-sudo -u "$SERVICE_USER" "$STEAMCMD" \
-    +force_install_dir "$ARMA_DIR" \
-    +login anonymous \
-    +app_update 1874900 validate \
-    +quit
-success "Arma Reforger server ready at $ARMA_DIR"
+
+# SteamCMD self-updates on its very first run on a new system, which can cause
+# a "Missing configuration" error if you immediately request an app download.
+# Running +quit first lets it finish initializing before we ask it to do work.
+info "Initializing SteamCMD (first-run update)..."
+sudo -u "$SERVICE_USER" "$STEAMCMD" +login anonymous +quit >/dev/null 2>&1 || true
+
+info "Installing / updating Arma Reforger dedicated server (this may take a while)..."
+ARMA_INSTALLED=false
+for attempt in 1 2 3; do
+    sudo -u "$SERVICE_USER" "$STEAMCMD" \
+        +force_install_dir "$ARMA_DIR" \
+        +login anonymous \
+        +app_update 1874900 \
+        +quit || true
+    if [[ -f "$ARMA_DIR/ArmaReforgerServer" ]]; then
+        ARMA_INSTALLED=true
+        break
+    fi
+    warn "SteamCMD attempt $attempt did not complete, retrying in 5s..."
+    sleep 5
+done
+
+if [[ "$ARMA_INSTALLED" == "true" ]]; then
+    success "Arma Reforger server ready at $ARMA_DIR"
+else
+    warn "Could not download Arma Reforger server automatically."
+    warn "Run this manually after the installer finishes:"
+    warn "  sudo -u $SERVICE_USER $STEAMCMD +force_install_dir $ARMA_DIR +login anonymous +app_update 1874900 validate +quit"
+fi
 
 # Create profile and log directories
 sudo -u "$SERVICE_USER" mkdir -p \
