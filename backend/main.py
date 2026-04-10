@@ -3,7 +3,7 @@ SITREP — Arma Reforger Server Panel Backend (Beta)
 Direct SteamCMD + systemd. No LinuxGSM.
 """
 
-import asyncio, re, json, os, time, subprocess, shutil, socket, hashlib, hmac, secrets, math, zlib, struct, sqlite3, ipaddress, zipfile, threading, urllib.parse
+import asyncio, re, json, os, time, subprocess, shutil, socket, hashlib, hmac, secrets, math, zlib, struct, sqlite3, ipaddress, zipfile, threading, urllib.parse, getpass
 from threading import Lock
 try:
     import miniupnpc
@@ -1306,7 +1306,7 @@ After=network.target
 
 [Service]
 Type=simple
-User=mark
+User={getpass.getuser()}
 WorkingDirectory={s['install_dir']}
 ExecStart={s['install_dir']}/ArmaReforgerServer \\
   -config {config_path} \\

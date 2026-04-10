@@ -2554,20 +2554,15 @@ function AiGm({toast}){
         <div className="font-black mb-1" style={{color:C.textBright,fontSize:sz.base+2}}>Bridge not running</div>
         <div className="mb-4 leading-relaxed" style={{color:C.textDim,fontSize:sz.base}}>The AI GM bridge connects this panel to a local LLM. When running, the AI autonomously manages the Game Master role — spawning enemies, reacting to player actions, and adjusting difficulty in real time.</div>
         <div className="space-y-1.5 mb-4">
-          {[['Bridge script',bridgeInfo?.bridge_path||'Set AIGM_BRIDGE_PATH env var'],['Bridge port','localhost:5555'],['LLM backend','Ollama (local GPU)'],['In-game component','AIGameMasterComponent.c (mod)']].map(([k,v])=>(
+          {[['Bridge script',bridgeInfo?.bridge_path||'Set AIGM_BRIDGE_PATH in .env'],['Bridge port','localhost:5555'],['LLM backend','Ollama (local GPU)'],['Required mod','Command&Control (workshop)']].map(([k,v])=>(
             <div key={k} className="flex items-center gap-3 px-3 py-2 rounded-lg" style={{background:C.bgInput,border:`1px solid ${C.border}`}}>
               <span className="font-bold shrink-0" style={{color:C.textDim,fontSize:sz.stat,minWidth:'7em'}}>{k}</span>
               <span className="font-mono flex-1 truncate" style={{color:C.text,fontSize:sz.stat}}>{v}</span>
             </div>
           ))}
         </div>
-        <div className="rounded-lg p-3 font-mono mb-4" style={{background:C.consoleBg,color:TC.cyan,fontSize:sz.code}}>{bridgeInfo?.bridge_path?`python3 ${bridgeInfo.bridge_path}`:'python3 <bridge_path> — set AIGM_BRIDGE_PATH env var'}</div>
+        <div className="rounded-lg p-3 font-mono mb-4" style={{background:C.consoleBg,color:TC.cyan,fontSize:sz.code}}>{bridgeInfo?.bridge_path?`python3 ${bridgeInfo.bridge_path}`:'python3 ~/AIGameMaster/AIGameMaster/bridge.py'}</div>
         <Btn onClick={startBridge} disabled={starting} className="w-full">{starting?'Starting...':'Start Bridge'}</Btn>
-      </Card>
-      <Card className="p-5">
-        <div className="font-black uppercase tracking-wide mb-2" style={{color:C.textDim,fontSize:sz.label}}>SAT Events Integration</div>
-        <div className="mb-3 leading-relaxed" style={{color:C.textMuted,fontSize:sz.base}}>Set <span className="font-mono px-1 rounded" style={{background:C.bgInput,color:TC.cyan}}>eventsApiAddress</span> in ServerAdminTools_Config.json:</div>
-        <div className="rounded-lg p-3 font-mono" style={{background:C.consoleBg,color:TC.cyan,fontSize:sz.code}}>"eventsApiAddress": "http://127.0.0.1:5555/events"</div>
       </Card>
     </div>
   )

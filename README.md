@@ -134,6 +134,76 @@ sudo systemctl restart sitrep-api
 
 ---
 
+## AI Game Master (Optional)
+
+The AI GM tab lets an LLM autonomously manage the Game Master role — spawning enemies, reacting to players, and adjusting difficulty in real time. It requires a separate bridge process and a compatible Arma Reforger mod.
+
+### Prerequisites
+
+| Requirement | Notes |
+|-------------|-------|
+| NVIDIA GPU | 8 GB VRAM minimum; 16 GB+ recommended |
+| Ollama | Local LLM inference engine |
+| Command&Control mod | Workshop mod ID `68E44E4AE677D389` — add to your server |
+
+### Step 1 — Add the Command&Control mod to your Arma server
+
+Search the Arma Reforger Workshop for **Command&Control** (mod ID `68E44E4AE677D389`) and add it to your server's mod list via the Mods tab in the panel.
+
+This mod provides the in-game component that connects the running scenario to the AI bridge.
+
+### Step 2 — Install the AI GM bridge
+
+```bash
+# Clone the AI Game Master repository
+git clone https://github.com/gaz8157/AIGameMaster.git ~/AIGameMaster
+cd ~/AIGameMaster
+
+# Run the installer (auto-detects GPU VRAM and selects the right model)
+bash install.sh
+```
+
+The installer will:
+1. Install Ollama and pull the recommended model for your GPU
+2. Create `~/AIGameMaster/AIGameMaster/.env` from the template
+3. Register `aigm-bridge` as a systemd service
+
+### Step 3 — Configure the bridge
+
+```bash
+nano ~/AIGameMaster/AIGameMaster/.env
+```
+
+Set your Arma server's RCON details:
+```
+RCON_HOST=127.0.0.1
+RCON_PORT=19999
+RCON_PASSWORD=your_rcon_password
+```
+
+### Step 4 — Link the panel to the bridge
+
+Add to `/opt/panel/.env`:
+```
+AIGM_DIR=/home/YOUR_USERNAME/AIGameMaster
+AIGM_BRIDGE_PATH=/home/YOUR_USERNAME/AIGameMaster/AIGameMaster/bridge.py
+```
+
+Then restart the panel:
+```bash
+sudo systemctl restart sitrep-api
+```
+
+### Step 5 — Start the bridge
+
+```bash
+sudo systemctl start aigm-bridge
+```
+
+The **AI Game Master** tab in the panel will show **ONLINE** once the bridge is running and connected.
+
+---
+
 ## Arma Server Setup
 
 The panel expects your Arma Reforger server at `/opt/arma-server/` controlled by a systemd service named `arma-reforger`.
