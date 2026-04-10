@@ -138,10 +138,30 @@ function Toasts({toasts,dismiss}){const{C}=useT();if(!toasts.length)return null;
 const ROLE_TABS={owner:['dashboard','console','startup','admin','config','mods','files','webhooks','network','aigm','scheduler'],head_admin:['dashboard','console','startup','admin','config','mods','files','webhooks','network','aigm','scheduler'],admin:['dashboard','console','startup','admin','config','mods','files','webhooks','network','aigm','scheduler'],moderator:['dashboard','console','startup','admin','network'],viewer:['dashboard'],demo:['dashboard','console','admin','mods']}
 const ROLE_COLORS={owner:'default',head_admin:'danger',admin:'info',moderator:'warning',viewer:'dim',demo:'dim'}
 
-function Login({onLogin}){const{C,sz}=useT();const[u,setU]=useState('');const[p,setP]=useState('');const[err,setErr]=useState('');const[loading,setLoading]=useState(false);const[remember,setRemember]=useState(false)
+function ResetPassword({token,onDone}){const{C,sz}=useT();const[p,setP]=useState('');const[c,setC]=useState('');const[err,setErr]=useState('');const[ok,setOk]=useState(false);const[loading,setLoading]=useState(false)
+  const submit=async e=>{e.preventDefault();setErr('');if(!p){setErr('Password is required');return};if(p!==c){setErr('Passwords do not match');return};setLoading(true)
+    try{const r=await fetch(`${API}/auth/reset-password`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,password:p})});const d=await r.json()
+      if(d.error){setErr(d.error);setLoading(false);return};setOk(true)}catch{setErr('Connection error');setLoading(false)}}
+  return <div className="min-h-screen flex items-center justify-center p-4" style={{background:C.bg}}>
+    <div className="w-full max-w-sm">
+      <div className="text-center mb-8"><div className="font-black tracking-widest mb-1" style={{color:C.textBright,fontSize:32}}>SITREP</div></div>
+      <div className="rounded-2xl p-8" style={{background:C.bgCard,border:`1px solid ${C.border}`}}>
+        <div className="font-black mb-1" style={{color:C.textBright,fontSize:sz.base+2}}>Set new password</div>
+        {ok?<><div className="py-4 font-bold text-center" style={{color:C.accent,fontSize:sz.base}}>Password updated. You can now sign in.</div>
+          <button onClick={onDone} className="w-full py-3 rounded-xl font-black uppercase tracking-widest cursor-pointer" style={{background:C.accent,color:'#000',fontSize:sz.base}}>Back to Login</button></>
+        :<form onSubmit={submit}>
+          <Input label="New Password" value={p} onChange={setP} type="password" placeholder="new password"/>
+          <Input label="Confirm Password" value={c} onChange={setC} type="password" placeholder="confirm password"/>
+          {err&&<div className="mb-3 px-3 py-2.5 rounded-lg font-bold" style={{background:C.redBg,color:C.red,border:`1px solid ${C.redBorder}`,fontSize:sz.stat}}>{err}</div>}
+          <button type="submit" disabled={loading} className="w-full py-3 rounded-xl font-black uppercase tracking-widest cursor-pointer disabled:opacity-50 transition-all" style={{background:C.accent,color:'#000',fontSize:sz.base}}>{loading?'Saving...':'Set Password'}</button>
+        </form>}
+      </div>
+    </div>
+  </div>}
+
+function Login({onLogin}){const{C,sz}=useT();const[u,setU]=useState('');const[p,setP]=useState('');const[err,setErr]=useState('');const[loading,setLoading]=useState(false);const[remember,setRemember]=useState(false);const[view,setView]=useState('login');const[fpEmail,setFpEmail]=useState('');const[fpMsg,setFpMsg]=useState('');const[fpErr,setFpErr]=useState('');const[fpLoading,setFpLoading]=useState(false)
   const{data:settings}=useFetchOnce(`${API}/settings/public`)
   const discordEnabled=!!settings?.discord_client_id
-  // Handle Discord OAuth error redirect — success is handled by App init via /auth/me
   useEffect(()=>{
     const params=new URLSearchParams(window.location.search)
     const derr=params.get('discord_error')
@@ -155,6 +175,10 @@ function Login({onLogin}){const{C,sz}=useT();const[u,setU]=useState('');const[p,
     try{const r=await fetch(`${API}/auth/login`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p,remember})});const d=await r.json()
       if(d.error){setErr(d.error);setLoading(false);return}
       onLogin({username:d.username,role:d.role})}catch{setErr('Connection error');setLoading(false)}}
+  const submitFp=async e=>{e.preventDefault();if(!fpEmail)return;setFpLoading(true);setFpErr('');setFpMsg('')
+    try{const r=await fetch(`${API}/auth/forgot-password`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:fpEmail})});const d=await r.json()
+      if(d.error){setFpErr(d.error);setFpLoading(false);return}
+      setFpMsg(d.message)}catch{setFpErr('Connection error')}setFpLoading(false)}
   return <div className="min-h-screen flex items-center justify-center p-4" style={{background:C.bg}}>
     <div className="w-full max-w-sm">
       <div className="text-center mb-8">
@@ -162,27 +186,40 @@ function Login({onLogin}){const{C,sz}=useT();const[u,setU]=useState('');const[p,
         <div className="font-bold uppercase tracking-widest" style={{color:C.textMuted,fontSize:sz.stat}}>Arma Reforger Server Panel <span className="px-1.5 py-0.5 rounded font-black" style={{background:C.orange+'22',color:C.orange,fontSize:sz.stat-1,border:`1px solid ${C.orange}40`}}>BETA</span></div>
       </div>
       <div className="rounded-2xl p-8" style={{background:C.bgCard,border:`1px solid ${C.border}`}}>
-        {discordEnabled&&<><a href={`${API}/auth/discord`} className="flex items-center justify-center gap-3 w-full py-3 rounded-xl font-black mb-4 cursor-pointer transition-all" style={{background:'#5865F2',color:'#fff',fontSize:sz.base,textDecoration:'none'}} onMouseEnter={e=>e.currentTarget.style.background='#4752c4'} onMouseLeave={e=>e.currentTarget.style.background='#5865F2'}>
-          <svg width="20" height="20" viewBox="0 0 71 55" fill="#fff"><path d="M60.1 4.9A58.5 58.5 0 0 0 45.6.8a.2.2 0 0 0-.2.1 40.7 40.7 0 0 0-1.8 3.7 54 54 0 0 0-16.2 0 37.4 37.4 0 0 0-1.8-3.7.2.2 0 0 0-.2-.1A58.4 58.4 0 0 0 10.9 4.9a.2.2 0 0 0-.1.1C1.6 18.2-.9 31.1.3 43.8a.2.2 0 0 0 .1.2 58.8 58.8 0 0 0 17.7 9 .2.2 0 0 0 .2-.1 42 42 0 0 0 3.6-5.9.2.2 0 0 0-.1-.3 38.7 38.7 0 0 1-5.5-2.6.2.2 0 0 1 0-.4c.4-.3.7-.6 1.1-.9a.2.2 0 0 1 .2 0c11.5 5.3 24 5.3 35.4 0a.2.2 0 0 1 .2 0c.4.3.7.6 1.1.9a.2.2 0 0 1 0 .4 36.2 36.2 0 0 1-5.5 2.6.2.2 0 0 0-.1.3 47.1 47.1 0 0 0 3.6 5.9.2.2 0 0 0 .2.1 58.6 58.6 0 0 0 17.8-9 .2.2 0 0 0 .1-.2c1.5-15.1-2.5-28-10.5-39.5a.2.2 0 0 0-.1-.1zM23.7 36.1c-3.5 0-6.4-3.2-6.4-7.2s2.8-7.2 6.4-7.2c3.6 0 6.5 3.3 6.4 7.2 0 4-2.8 7.2-6.4 7.2zm23.6 0c-3.5 0-6.4-3.2-6.4-7.2s2.8-7.2 6.4-7.2c3.6 0 6.5 3.3 6.4 7.2 0 4-2.9 7.2-6.4 7.2z"/></svg>
-          Login
-        </a>
-        <div className="flex items-center gap-3 mb-4"><div className="flex-1 h-px" style={{background:C.border}}/><span style={{color:C.textMuted,fontSize:sz.stat}}>or</span><div className="flex-1 h-px" style={{background:C.border}}/></div></>}
-        <form onSubmit={submit}>
-          <Input label="Username" value={u} onChange={setU} placeholder="username"/>
-          <Input label="Password" value={p} onChange={setP} type="password" placeholder="password"/>
-          {err&&<div className="mb-3 px-3 py-2.5 rounded-lg font-bold" style={{background:C.redBg,color:C.red,border:`1px solid ${C.redBorder}`,fontSize:sz.stat}}>{err}</div>}
-          <label className="flex items-center gap-2 mb-3 cursor-pointer" style={{color:C.textDim,fontSize:sz.base}}>
-            <input type="checkbox" checked={remember} onChange={e=>setRemember(e.target.checked)} className="w-4 h-4 cursor-pointer" style={{accentColor:C.accent}}/>
-            Remember me for 30 days
-          </label>
-          <button type="submit" disabled={loading} className="w-full py-3 rounded-xl font-black uppercase tracking-widest cursor-pointer disabled:opacity-50 transition-all" style={{background:C.accent,color:'#000',fontSize:sz.base}}>{loading?'Signing in...':'Sign In'}</button>
-        </form>
+        {view==='forgot'?<>
+          <div className="font-black mb-1" style={{color:C.textBright,fontSize:sz.base+2}}>Reset password</div>
+          <div className="mb-4" style={{color:C.textDim,fontSize:sz.base}}>Enter your email address and we'll send you a reset link.</div>
+          {fpMsg?<div className="py-4 font-bold text-center" style={{color:C.accent,fontSize:sz.base}}>{fpMsg}</div>
+          :<form onSubmit={submitFp}>
+            <Input label="Email" value={fpEmail} onChange={setFpEmail} type="email" placeholder="your@email.com"/>
+            {fpErr&&<div className="mb-3 px-3 py-2.5 rounded-lg font-bold" style={{background:C.redBg,color:C.red,border:`1px solid ${C.redBorder}`,fontSize:sz.stat}}>{fpErr}</div>}
+            <button type="submit" disabled={fpLoading} className="w-full py-3 rounded-xl font-black uppercase tracking-widest cursor-pointer disabled:opacity-50 transition-all mb-3" style={{background:C.accent,color:'#000',fontSize:sz.base}}>{fpLoading?'Sending...':'Send Reset Link'}</button>
+          </form>}
+          <button onClick={()=>setView('login')} className="w-full py-2 rounded-xl font-bold cursor-pointer" style={{background:'transparent',color:C.textMuted,fontSize:sz.base}}>Back to Sign In</button>
+        </>:<>
+          {discordEnabled&&<><a href={`${API}/auth/discord`} className="flex items-center justify-center gap-3 w-full py-3 rounded-xl font-black mb-4 cursor-pointer transition-all" style={{background:'#5865F2',color:'#fff',fontSize:sz.base,textDecoration:'none'}} onMouseEnter={e=>e.currentTarget.style.background='#4752c4'} onMouseLeave={e=>e.currentTarget.style.background='#5865F2'}>
+            <svg width="20" height="20" viewBox="0 0 71 55" fill="#fff"><path d="M60.1 4.9A58.5 58.5 0 0 0 45.6.8a.2.2 0 0 0-.2.1 40.7 40.7 0 0 0-1.8 3.7 54 54 0 0 0-16.2 0 37.4 37.4 0 0 0-1.8-3.7.2.2 0 0 0-.2-.1A58.4 58.4 0 0 0 10.9 4.9a.2.2 0 0 0-.1.1C1.6 18.2-.9 31.1.3 43.8a.2.2 0 0 0 .1.2 58.8 58.8 0 0 0 17.7 9 .2.2 0 0 0 .2-.1 42 42 0 0 0 3.6-5.9.2.2 0 0 0-.1-.3 38.7 38.7 0 0 1-5.5-2.6.2.2 0 0 1 0-.4c.4-.3.7-.6 1.1-.9a.2.2 0 0 1 .2 0c11.5 5.3 24 5.3 35.4 0a.2.2 0 0 1 .2 0c.4.3.7.6 1.1.9a.2.2 0 0 1 0 .4 36.2 36.2 0 0 1-5.5 2.6.2.2 0 0 0-.1.3 47.1 47.1 0 0 0 3.6 5.9.2.2 0 0 0 .2.1 58.6 58.6 0 0 0 17.8-9 .2.2 0 0 0 .1-.2c1.5-15.1-2.5-28-10.5-39.5a.2.2 0 0 0-.1-.1zM23.7 36.1c-3.5 0-6.4-3.2-6.4-7.2s2.8-7.2 6.4-7.2c3.6 0 6.5 3.3 6.4 7.2 0 4-2.8 7.2-6.4 7.2zm23.6 0c-3.5 0-6.4-3.2-6.4-7.2s2.8-7.2 6.4-7.2c3.6 0 6.5 3.3 6.4 7.2 0 4-2.9 7.2-6.4 7.2z"/></svg>
+            Login
+          </a>
+          <div className="flex items-center gap-3 mb-4"><div className="flex-1 h-px" style={{background:C.border}}/><span style={{color:C.textMuted,fontSize:sz.stat}}>or</span><div className="flex-1 h-px" style={{background:C.border}}/></div></>}
+          <form onSubmit={submit}>
+            <Input label="Username" value={u} onChange={setU} placeholder="username"/>
+            <Input label="Password" value={p} onChange={setP} type="password" placeholder="password"/>
+            {err&&<div className="mb-3 px-3 py-2.5 rounded-lg font-bold" style={{background:C.redBg,color:C.red,border:`1px solid ${C.redBorder}`,fontSize:sz.stat}}>{err}</div>}
+            <label className="flex items-center gap-2 mb-3 cursor-pointer" style={{color:C.textDim,fontSize:sz.base}}>
+              <input type="checkbox" checked={remember} onChange={e=>setRemember(e.target.checked)} className="w-4 h-4 cursor-pointer" style={{accentColor:C.accent}}/>
+              Remember me for 30 days
+            </label>
+            <button type="submit" disabled={loading} className="w-full py-3 rounded-xl font-black uppercase tracking-widest cursor-pointer disabled:opacity-50 transition-all" style={{background:C.accent,color:'#000',fontSize:sz.base}}>{loading?'Signing in...':'Sign In'}</button>
+          </form>
+          <div className="text-center mt-4"><button onClick={()=>setView('forgot')} className="cursor-pointer" style={{color:C.textMuted,fontSize:sz.stat,background:'none',border:'none'}}>Forgot password?</button></div>
+        </>}
       </div>
     </div>
   </div>}
 
 function SetupWizard({onComplete}){const{C,sz}=useT();const[username,setUsername]=useState('');const[password,setPassword]=useState('');const[confirm,setConfirm]=useState('');const[err,setErr]=useState('');const[loading,setLoading]=useState(false)
-  const submit=async e=>{e.preventDefault();setErr('');if(password!==confirm){setErr('Passwords do not match');return};if(password.length<8){setErr('Password must be at least 8 characters');return};setLoading(true);try{const r=await fetch(`${API}/setup/complete`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});const d=await r.json();if(d.error){setErr(d.error);setLoading(false);return};onComplete({username:d.username,role:d.role})}catch{setErr('Connection error');setLoading(false)}}
+  const submit=async e=>{e.preventDefault();setErr('');if(password!==confirm){setErr('Passwords do not match');return};if(!password){setErr('Password is required');return};setLoading(true);try{const r=await fetch(`${API}/setup/complete`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});const d=await r.json();if(d.error){setErr(d.error);setLoading(false);return};onComplete({username:d.username,role:d.role})}catch{setErr('Connection error');setLoading(false)}}
   return<div className="min-h-screen flex items-center justify-center p-4" style={{background:C.bg}}>
     <div className="w-full max-w-sm">
       <div className="text-center mb-8">
@@ -196,7 +233,7 @@ function SetupWizard({onComplete}){const{C,sz}=useT();const[username,setUsername
         </div>
         <form onSubmit={submit}>
           <Input label="Username" value={username} onChange={setUsername} placeholder="e.g. admin"/>
-          <Input label="Password" value={password} onChange={setPassword} type="password" placeholder="min 8 characters"/>
+          <Input label="Password" value={password} onChange={setPassword} type="password" placeholder="password"/>
           <Input label="Confirm Password" value={confirm} onChange={setConfirm} type="password" placeholder="repeat password"/>
           {err&&<div className="mb-3 px-3 py-2.5 rounded-lg font-bold" style={{background:C.redBg,color:C.red,border:`1px solid ${C.redBorder}`,fontSize:sz.stat}}>{err}</div>}
           <button type="submit" disabled={loading||!username||!password||!confirm} className="w-full py-3 rounded-xl font-black uppercase tracking-widest cursor-pointer disabled:opacity-50 transition-all" style={{background:C.accent,color:'#000',fontSize:sz.base}}>{loading?'Creating...':'Create Account & Enter'}</button>
@@ -4198,6 +4235,8 @@ export default function App(){
   const logout=async()=>{try{await fetch(`${API}/auth/logout`,{method:'POST'})}catch{};setAuthUser(null);setUserProfile(null);setServerId(null);setSelectedServer(null);localStorage.removeItem('sitrep-server-id')}
   const CSS=`::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:${C.border};border-radius:4px}::selection{background:${C.accent}25;color:${C.textBright}}@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}@keyframes spin-cw{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}*{scrollbar-width:thin;scrollbar-color:${C.border} transparent;-webkit-tap-highlight-color:transparent;box-sizing:border-box}input,select,textarea{font-size:16px!important}button{touch-action:manipulation}img{max-width:100%}.overflow-auto,.overflow-y-auto{-webkit-overflow-scrolling:touch}.profile-tab-anim{animation:fadeIn 0.15s ease}.avatar-zone:hover .avatar-overlay{opacity:1!important}.pw-field:focus-within{border-color:${C.accent}80!important}.toast-item:hover .toast-x{opacity:1!important}`
   if(authLoading)return <Ctx.Provider value={{C,sz}}><div className="min-h-screen flex items-center justify-center" style={{background:C.bg}}><style>{CSS}</style><div className="animate-pulse font-black tracking-widest" style={{color:C.textDim,fontSize:20}}>SITREP</div></div></Ctx.Provider>
+  const resetToken=new URLSearchParams(window.location.search).get('reset_token')
+  if(resetToken)return <Ctx.Provider value={{C,sz}}><style>{CSS}</style><ResetPassword token={resetToken} onDone={()=>{window.history.replaceState({},'',window.location.pathname)}}/></Ctx.Provider>
   if(needsSetup)return <Ctx.Provider value={{C,sz}}><style>{CSS}</style><SetupWizard onComplete={u=>{setNeedsSetup(false);setAuthUser(u)}}/></Ctx.Provider>
   if (!authUser) return (
     <Ctx.Provider value={{C,sz}}>
@@ -4421,6 +4460,11 @@ function SecurityTab({authUser, toast}) {
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
   const [show, setShow] = useState({current:false, next:false, confirm:false})
+  const [email, setEmail] = useState('')
+  const [emailSaving, setEmailSaving] = useState(false)
+  const {data:meData}=useFetchOnce(`${API}/auth/me`)
+  useEffect(()=>{if(meData?.email)setEmail(meData.email)},[meData])
+  const saveEmail=async()=>{setEmailSaving(true);try{const r=await fetch(`${API}/users/update`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:authUser.username,email})});const d=await r.json();if(d.error){toast(d.error,'danger')}else{toast('Email saved')}}catch{toast('Connection error','danger')}setEmailSaving(false)}
 
   const pwStrength = pw => {
     if (!pw) return 0
@@ -4440,7 +4484,7 @@ function SecurityTab({authUser, toast}) {
   const save = async () => {
     setErr('')
     if (!current || !next || !confirm) { setErr('All fields required'); return }
-    if (next.length < 8) { setErr('New password must be at least 8 characters'); return }
+    if (!next) { setErr('New password is required'); return }
     if (next !== confirm) { setErr('New passwords do not match'); return }
     setSaving(true)
     try {
@@ -4470,6 +4514,12 @@ function SecurityTab({authUser, toast}) {
 
   return (
     <div className="profile-tab-anim">
+      <div style={{fontWeight:900,color:C.textBright,fontSize:sz.base+2,marginBottom:4}}>Recovery Email</div>
+      <div style={{color:C.textMuted,fontSize:sz.stat,marginBottom:12}}>Used for password reset. Not shared with anyone.</div>
+      <div style={{display:'flex',gap:8,maxWidth:380,marginBottom:28}}>
+        <input value={email} onChange={e=>setEmail(e.target.value)} type="email" placeholder="your@email.com" className="flex-1 rounded-lg px-3 py-2 outline-none font-mono" style={{background:C.bgInput,border:`1px solid ${C.border}`,color:C.text,fontSize:sz.input}}/>
+        <Btn onClick={saveEmail} disabled={emailSaving}>{emailSaving?'Saving…':'Save'}</Btn>
+      </div>
       <div style={{fontWeight:900,color:C.textBright,fontSize:sz.base+2,marginBottom:4}}>Change Password</div>
       <div style={{color:C.textMuted,fontSize:sz.stat,marginBottom:20}}>Changing your password will sign out all other active sessions.</div>
       <div style={{display:'flex',flexDirection:'column',gap:14,maxWidth:380}}>

@@ -36,6 +36,13 @@ if _env_path.exists():
 # Set PANEL_URL in /opt/panel/.env — no hardcoded IPs anywhere.
 PANEL_URL = os.environ.get("PANEL_URL", "http://localhost:8000").rstrip("/")
 
+# SMTP — optional, enables email password reset
+SMTP_HOST = os.environ.get("SMTP_HOST", "")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("SMTP_USER", "")
+SMTP_PASS = os.environ.get("SMTP_PASS", "")
+SMTP_FROM = os.environ.get("SMTP_FROM", "") or SMTP_USER
+
 ARMA_DIR = Path("/opt/arma-server")
 CONFIG_PATH = ARMA_DIR / "config.json"
 PROFILE_DIR = ARMA_DIR / "profile"
@@ -48,6 +55,7 @@ USER_PROFILES_FILE = PANEL_DATA / "user_profiles.json"
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 IMAGE_EXTENSIONS = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
 ADMINS_DB = PANEL_DATA / "admins.json"
+RESET_TOKENS_FILE = PANEL_DATA / "reset_tokens.json"
 STEAMCMD = "/usr/games/steamcmd"
 SERVICE_NAME = "arma-reforger"
 PROCESS_START = time.time()
@@ -488,6 +496,7 @@ async def auth_middleware(request: Request, call_next):
             headers={"Retry-After": "10"}
         )
     PUBLIC_PATHS = {"/api/health", "/api/auth/login", "/api/settings/public",
+                    "/api/auth/forgot-password", "/api/auth/reset-password",
                     "/api/auth/discord", "/api/auth/discord/callback",
                     "/api/auth/refresh", "/api/auth/logout",
                     "/api/setup/status", "/api/setup/complete"}
@@ -865,7 +874,15 @@ async def login(request: Request, response: Response):
 
 @app.get("/api/auth/me")
 async def auth_me(request: Request):
-    return current_user(request)
+    u = current_user(request)
+    try:
+        data = load_panel_users(Path(get_default_server()["data_dir"]))
+        full = next((x for x in data["users"] if x["username"] == u["username"]), {})
+        if full.get("email"):
+            return {**u, "email": full["email"]}
+    except Exception:
+        pass
+    return u
 
 @app.post("/api/auth/refresh")
 async def refresh_token_endpoint(request: Request, response: Response):
@@ -890,6 +907,96 @@ async def logout_endpoint(request: Request, response: Response):
     delete_refresh_token(refresh_id)
     clear_auth_cookies(response)
     return {"message": "Logged out"}
+
+# === PASSWORD RESET ===
+
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+def _load_reset_tokens() -> dict:
+    if not RESET_TOKENS_FILE.exists():
+        return {}
+    try:
+        return json.loads(RESET_TOKENS_FILE.read_text())
+    except Exception:
+        return {}
+
+def _save_reset_tokens(tokens: dict):
+    RESET_TOKENS_FILE.write_text(json.dumps(tokens, indent=2))
+
+def _prune_reset_tokens(tokens: dict) -> dict:
+    now = time.time()
+    return {k: v for k, v in tokens.items() if v.get("expires", 0) > now}
+
+class ForgotPasswordBody(BaseModel):
+    email: str
+
+class ResetPasswordBody(BaseModel):
+    token: str
+    password: str
+
+@app.post("/api/auth/forgot-password")
+async def forgot_password(body: ForgotPasswordBody):
+    if not SMTP_HOST:
+        return JSONResponse({"error": "Email is not configured on this server. Contact the server owner to reset your password."}, status_code=503)
+    data = load_panel_users()
+    user = next((u for u in data.get("users", []) if u.get("email", "").lower() == body.email.strip().lower()), None)
+    # Always return success to prevent email enumeration
+    if not user:
+        return {"message": "If that email is registered, a reset link has been sent."}
+    token = secrets.token_urlsafe(32)
+    tokens = _prune_reset_tokens(_load_reset_tokens())
+    tokens[token] = {"username": user["username"], "expires": time.time() + 3600}
+    _save_reset_tokens(tokens)
+    reset_url = f"{PANEL_URL}?reset_token={token}"
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = "SITREP — Password Reset"
+        msg["From"] = SMTP_FROM
+        msg["To"] = body.email.strip()
+        text_body = f"Reset your SITREP panel password for account '{user['username']}':\n\n{reset_url}\n\nThis link expires in 1 hour. If you didn't request this, ignore this email."
+        html_body = f"""<div style="font-family:sans-serif;max-width:480px;margin:0 auto">
+<h2 style="color:#111">SITREP — Password Reset</h2>
+<p>A password reset was requested for account <strong>{user['username']}</strong>.</p>
+<p><a href="{reset_url}" style="background:#22c55e;color:#000;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block">Reset Password</a></p>
+<p style="color:#666;font-size:13px">Or copy this link:<br><code>{reset_url}</code></p>
+<p style="color:#999;font-size:12px">This link expires in 1 hour. If you didn't request this, ignore this email.</p>
+</div>"""
+        msg.attach(MIMEText(text_body, "plain"))
+        msg.attach(MIMEText(html_body, "html"))
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as srv:
+            srv.ehlo()
+            srv.starttls()
+            srv.ehlo()
+            if SMTP_USER:
+                srv.login(SMTP_USER, SMTP_PASS)
+            srv.sendmail(SMTP_FROM, body.email.strip(), msg.as_string())
+    except Exception as e:
+        print(f"[SITREP] Failed to send reset email: {e}")
+        return JSONResponse({"error": "Failed to send email. Check SMTP configuration."}, status_code=500)
+    return {"message": "If that email is registered, a reset link has been sent."}
+
+@app.post("/api/auth/reset-password")
+async def reset_password_endpoint(body: ResetPasswordBody):
+    tokens = _prune_reset_tokens(_load_reset_tokens())
+    entry = tokens.get(body.token)
+    if not entry:
+        return JSONResponse({"error": "Invalid or expired reset link."}, status_code=400)
+    if not body.password:
+        return JSONResponse({"error": "Password is required."}, status_code=400)
+    data = load_panel_users()
+    for u in data.get("users", []):
+        if u["username"] == entry["username"]:
+            salt = secrets.token_hex(16)
+            u["password_hash"] = hashlib.pbkdf2_hmac("sha256", body.password.encode(), salt.encode(), 100000).hex()
+            u["salt"] = salt
+            u["tokens_valid_after"] = time.time()
+            break
+    save_panel_users(data)
+    del tokens[body.token]
+    _save_reset_tokens(tokens)
+    return {"message": "Password reset successfully. You can now log in."}
 
 # === DISCORD OAUTH ===
 
@@ -1158,6 +1265,8 @@ async def update_user(request: Request):
         user["password_hash"] = hash_password(body["password"])
         user["tokens_valid_after"] = int(time.time())
         delete_refresh_tokens_for_user(username)
+    if "email" in body:
+        user["email"] = body["email"].strip().lower()
     save_panel_users(data, data_dir)
     return {"message": f"User '{username}' updated"}
 
@@ -1405,8 +1514,8 @@ async def setup_complete(body: SetupRequest, response: Response):
     password = body.password
     if not username or len(username) < 2:
         return JSONResponse({"error": "Username must be at least 2 characters"}, status_code=400)
-    if len(password) < 8:
-        return JSONResponse({"error": "Password must be at least 8 characters"}, status_code=400)
+    if not password:
+        return JSONResponse({"error": "Password is required"}, status_code=400)
     data = load_panel_users()
     data["users"].append({
         "username": username,
@@ -3678,8 +3787,6 @@ async def change_own_password(request: Request):
     new_pw = body.get("new_password", "")
     if not current_pw or not new_pw:
         return JSONResponse({"error": "current_password and new_password required"}, status_code=400)
-    if len(new_pw) < 8:
-        return JSONResponse({"error": "New password must be at least 8 characters"}, status_code=400)
     data_dir = srv_data_dir(request)
     data = load_panel_users(data_dir)
     u = next((x for x in data["users"] if x["username"] == username), None)

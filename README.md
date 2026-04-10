@@ -338,6 +338,16 @@ journalctl -u sitrep-api -n 50 --no-pager
 - Verify `nvidia-smi` works: `nvidia-smi -q`
 - The panel falls back gracefully if no GPU is detected
 
+**Locked out — forgot password / can't log in**
+
+If you have SSH access to the server, reset the owner account password directly:
+```bash
+cd /opt/panel/backend && venv/bin/python3 -c "import json,hashlib,secrets;f='data/panel_users.json';d=json.load(open(f));u=next(x for x in d['users'] if x.get('role')=='owner');s=secrets.token_hex(16);h=hashlib.pbkdf2_hmac('sha256',b'admin123',s.encode(),100000).hex();u['password_hash']=s+':'+h;u.pop('salt',None);json.dump(d,open(f,'w'),indent=2);print('Reset',u['username'],'to admin123')"
+```
+Then log in with your owner username and `admin123`, and change your password in Settings.
+
+To avoid lockouts in future, add a recovery email in **Settings → Security** — the login page has a "Forgot password?" link that sends a reset email (requires SMTP configured in `.env`).
+
 ---
 
 ## License
