@@ -23,7 +23,8 @@ Built with FastAPI + React.
 - **AI Game Master** — optional AI GM tab (requires separate bridge setup)
 - **Multi-server** — manage multiple Arma Reforger instances from one panel
 - **Auth** — user accounts with roles: owner / head_admin / admin / moderator / viewer / demo
-- **Setup wizard** — guided first-run setup to create your owner account
+- **2FA** — authenticator app (TOTP) with backup codes
+- **Setup wizard** — guided first-run setup with account creation and optional 2FA
 - **Themes** — Midnight, Daylight, Tactical, Ember
 - **Mobile** — fully responsive, works on phone and tablet
 
@@ -35,9 +36,9 @@ Built with FastAPI + React.
 |-------------|-------|
 | Ubuntu 22.04 or 24.04 | Other distros not supported |
 | `sudo` access | Installer needs root to set up systemd |
-| Arma Reforger dedicated server | Installed at `/opt/arma-server/` with systemd service `arma-reforger` |
-| SteamCMD | For server updates — installer handles this automatically |
 | NVIDIA GPU + `nvidia-smi` | Optional — for GPU stats in the dashboard |
+
+Everything else (Arma Reforger server, SteamCMD, Node.js, Python) is installed automatically by the one-liner.
 
 > **Windows users:** Run the panel inside WSL 2 with Ubuntu. See [WSL Setup](#wsl-setup) below.
 
@@ -53,15 +54,15 @@ curl -sSL https://raw.githubusercontent.com/gaz8157/sitrep/main/install.sh | sud
 
 The installer will:
 1. Install system dependencies (Node.js 20, Python 3, SteamCMD)
-2. Clone the panel to `/opt/panel`
-3. Build the frontend and set up a Python environment
-4. Prompt for your panel URL
-5. Create a systemd service (`sitrep-api`) on port 8000
-6. Start the panel
+2. Download and install the Arma Reforger dedicated server to `/opt/arma-server/`
+3. Create a starter `config.json` and register the `arma-reforger` systemd service
+4. Clone the panel to `/opt/panel` and build the frontend
+5. Create a `sitrep-api` systemd service on port 8000 and start it
+6. Open firewall ports (8000, 2001, 17777, 19999) if UFW is active
 
-**Open your browser to the panel URL and complete the setup wizard to create your owner account.**
+**Open your browser to `http://YOUR_SERVER_IP:8000` and complete the setup wizard to create your owner account.**
 
-You can also set a custom install directory:
+To use a custom install directory:
 ```bash
 SITREP_INSTALL_DIR=/opt/myserver curl -sSL https://raw.githubusercontent.com/gaz8157/sitrep/main/install.sh | sudo bash
 ```
@@ -112,7 +113,12 @@ sudo systemctl enable --now sitrep-api
 
 After install, open your panel URL in a browser (e.g. `http://YOUR_SERVER_IP:8000`).
 
-On first launch the **setup wizard** will appear — enter a username and password to create your owner account. This account has full control of the panel and can create additional users from the settings area.
+On first launch the **setup wizard** will appear:
+1. Enter a username, recovery email, and password to create your owner account
+2. You'll be prompted to set up two-factor authentication (recommended but optional)
+3. Once complete you'll land on the dashboard
+
+Your owner account has full control of the panel and can create additional users from Settings.
 
 ---
 
@@ -129,8 +135,54 @@ sudo systemctl restart sitrep-api
 |----------|----------|-------------|
 | `PANEL_URL` | Yes | Full URL users access the panel at. Used for CORS and Discord OAuth. |
 | `SECRET_KEY` | No | Override the auto-generated JWT secret (useful for multi-instance setups). |
+| `SMTP_HOST` | No | SMTP server hostname — enables email password reset. |
+| `SMTP_PORT` | No | SMTP port (default: 587). |
+| `SMTP_USER` | No | SMTP login username. |
+| `SMTP_PASS` | No | SMTP login password (use an app password for Gmail). |
+| `SMTP_FROM` | No | From address for reset emails. Defaults to `SMTP_USER`. |
 | `AIGM_DIR` | No | Path to your AI Game Master directory. Defaults to `~/AIGameMaster`. |
 | `AIGM_BRIDGE_PATH` | No | Path to `bridge.py` for the AI GM feature. |
+
+---
+
+## Opening Ports
+
+### OS Firewall (UFW)
+
+The installer opens the required ports automatically if UFW is active. To open them manually:
+
+```bash
+sudo ufw allow 8000/tcp   # SITREP panel
+sudo ufw allow 2001/udp   # Arma game traffic
+sudo ufw allow 17777/udp  # Arma server browser / query
+sudo ufw allow 19999/tcp  # RCON
+sudo ufw reload
+```
+
+### Router Port Forwarding
+
+To make your server reachable from the internet, forward these ports on your router to your server's **local IP address**:
+
+| Port | Protocol | Purpose |
+|------|----------|---------|
+| 2001 | UDP | Arma Reforger — game traffic |
+| 17777 | UDP | Arma Reforger — server browser / Steam query |
+| 19999 | TCP | RCON (optional — only if you need remote RCON access) |
+| 8000 | TCP | SITREP panel (optional — only if you want remote panel access) |
+
+**How to forward ports (general steps):**
+1. Find your router's admin page — usually `http://192.168.1.1` or `http://192.168.0.1` in your browser
+2. Log in (check the label on your router for the default credentials)
+3. Find **Port Forwarding** — sometimes listed under Advanced, NAT, or Firewall
+4. Add a rule for each port: set the internal IP to your server's local IP (e.g. `192.168.1.50`), the external and internal port to the same number, and the protocol as shown
+5. Save and apply
+
+Find your server's local IP:
+```bash
+hostname -I | awk '{print $1}'
+```
+
+> **Tip:** Assign your server a static local IP in your router's DHCP settings so the forwarding rules don't break after a reboot.
 
 ---
 
@@ -188,11 +240,8 @@ This mod provides the in-game component that connects the running scenario to th
 ### Step 2 — Install the AI GM bridge
 
 ```bash
-# Clone the AI Game Master repository
 git clone https://github.com/gaz8157/AIGameMaster.git ~/AIGameMaster
 cd ~/AIGameMaster
-
-# Run the installer (auto-detects GPU VRAM and selects the right model)
 bash install.sh
 ```
 
@@ -237,49 +286,6 @@ The **AI Game Master** tab in the panel will show **ONLINE** once the bridge is 
 
 ---
 
-## Arma Server Setup
-
-The panel expects your Arma Reforger server at `/opt/arma-server/` controlled by a systemd service named `arma-reforger`.
-
-**Install the server via SteamCMD:**
-```bash
-sudo mkdir -p /opt/arma-server
-steamcmd +force_install_dir /opt/arma-server +login anonymous +app_update 1874900 validate +quit
-```
-
-**Create the systemd service** at `/etc/systemd/system/arma-reforger.service`:
-```ini
-[Unit]
-Description=Arma Reforger Dedicated Server
-After=network.target
-
-[Service]
-User=YOUR_USERNAME
-WorkingDirectory=/opt/arma-server
-ExecStart=/opt/arma-server/ArmaReforgerServer -config /opt/arma-server/config.json -profile /opt/arma-server/profile
-Restart=on-failure
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable arma-reforger
-```
-
-Then use the panel to configure mods, startup params, and start your server.
-
-**Sudoers rule** (required for the panel to start/stop the server without a password prompt):
-```bash
-echo "YOUR_USERNAME ALL=(ALL) NOPASSWD: /bin/systemctl" | sudo tee /etc/sudoers.d/sitrep
-```
-
-The installer adds this automatically.
-
----
-
 ## Managing the Panel
 
 ```bash
@@ -299,47 +305,6 @@ sudo systemctl start sitrep-api
 
 ---
 
-## Opening Ports
-
-### OS Firewall (UFW)
-
-The installer opens the required ports automatically if UFW is active. To open them manually:
-
-```bash
-sudo ufw allow 8000/tcp   # SITREP panel
-sudo ufw allow 2001/udp   # Arma game traffic
-sudo ufw allow 17777/udp  # Arma server browser / query
-sudo ufw allow 19999/tcp  # RCON
-sudo ufw reload
-```
-
-### Router Port Forwarding
-
-To make your server reachable from the internet, forward these ports on your router to your server's **local IP address**:
-
-| Port | Protocol | Purpose |
-|------|----------|---------|
-| 2001 | UDP | Arma Reforger — game traffic |
-| 17777 | UDP | Arma Reforger — server browser / Steam query |
-| 19999 | TCP | RCON (optional — only if you need remote RCON access) |
-| 8000 | TCP | SITREP panel (optional — only if you want remote panel access) |
-
-**How to forward ports (general steps):**
-1. Find your router's admin page — usually `http://192.168.1.1` or `http://192.168.0.1` in your browser
-2. Log in (check the label on your router for the default credentials)
-3. Find **Port Forwarding** — sometimes listed under Advanced, NAT, or Firewall
-4. Add a rule for each port above: set the internal IP to your server's local IP (e.g. `192.168.1.50`), the internal and external port to the same number, and the protocol as shown
-5. Save and apply
-
-Your server's local IP is shown when the installer runs, or you can find it with:
-```bash
-hostname -I | awk '{print $1}'
-```
-
-> **Tip:** Assign your server a static local IP in your router's DHCP settings so the forwarding rules don't break after a reboot.
-
----
-
 ## Updating
 
 ```bash
@@ -347,6 +312,11 @@ cd /opt/panel
 git pull
 cd frontend && npm ci && npm run build && cd ..
 sudo systemctl restart sitrep-api
+```
+
+To also update the Arma Reforger server:
+```bash
+/usr/games/steamcmd +force_install_dir /opt/arma-server +login anonymous +app_update 1874900 +quit
 ```
 
 ---
@@ -385,27 +355,29 @@ To launch it quickly from Windows, create a shortcut on your desktop:
 1. Right-click the desktop → **New → Shortcut**
 2. Paste this as the location:
    ```
-   wsl.exe bash -c "sudo systemctl start sitrep-api; sleep 2" && start http://localhost:8000
+   cmd.exe /c "wsl sudo systemctl start sitrep-api && start http://localhost:8000"
    ```
 3. Name it **SITREP** and click Finish
 
 Double-clicking the shortcut will start WSL, ensure the panel is running, and open it in your browser.
-
-To check the panel is running from inside WSL at any time:
-```bash
-sudo systemctl status sitrep-api
-```
 
 ---
 
 ## Uninstall
 
 ```bash
-sudo systemctl disable --now sitrep-api
-sudo rm /etc/systemd/system/sitrep-api.service
-sudo rm /etc/sudoers.d/sitrep
+sudo systemctl disable --now sitrep-api sitrep-web 2>/dev/null
+sudo rm -f /etc/systemd/system/sitrep-api.service
+sudo rm -f /etc/sudoers.d/sitrep
 sudo systemctl daemon-reload
 sudo rm -rf /opt/panel
+```
+
+To also remove the Arma server:
+```bash
+sudo systemctl disable --now arma-reforger
+sudo rm -f /etc/systemd/system/arma-reforger.service
+sudo rm -rf /opt/arma-server
 ```
 
 ---
@@ -418,13 +390,19 @@ journalctl -u sitrep-api -n 50 --no-pager
 ```
 
 **"Backend unreachable" in browser**
-- Check the service: `sudo systemctl status sitrep-api`
-- Open the firewall port: `sudo ufw allow 8000/tcp` (the installer does this automatically if UFW is active)
+- Check the service is running: `sudo systemctl status sitrep-api`
+- Check the firewall: `sudo ufw allow 8000/tcp` (the installer does this automatically if UFW is active)
 - If accessing from outside your network, make sure port 8000 is forwarded on your router — see [Opening Ports](#opening-ports)
 
 **Can't start/stop the Arma server**
-- Verify the `arma-reforger` service exists: `sudo systemctl status arma-reforger`
+- Verify the service exists: `sudo systemctl status arma-reforger`
 - Check the sudoers rule: `sudo cat /etc/sudoers.d/sitrep`
+
+**Arma server won't download during install**
+- Run SteamCMD manually:
+  ```bash
+  sudo -u YOUR_USERNAME /usr/games/steamcmd +force_install_dir /opt/arma-server +login anonymous +app_update 1874900 validate +quit
+  ```
 
 **Startup diagnostics shows broken mods**
 - Go to **Startup → Diagnostics** tab — broken mods are listed with a remove button
@@ -435,7 +413,7 @@ journalctl -u sitrep-api -n 50 --no-pager
 
 **Locked out — forgot password / can't log in**
 
-If you have SSH access to the server, reset the owner account password directly. You will be prompted for your system password:
+Reset the owner account password from the command line (you will be prompted for your system password):
 ```bash
 sudo -v && cd /opt/panel/backend && venv/bin/python3 -c "import json,hashlib,secrets;f='data/panel_users.json';d=json.load(open(f));u=next(x for x in d['users'] if x.get('role')=='owner');s=secrets.token_hex(16);h=hashlib.pbkdf2_hmac('sha256',b'admin123',s.encode(),100000).hex();u['password_hash']=s+':'+h;u.pop('salt',None);json.dump(d,open(f,'w'),indent=2);print('Reset',u['username'],'to admin123')"
 ```
