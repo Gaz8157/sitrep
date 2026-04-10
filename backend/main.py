@@ -1623,6 +1623,7 @@ async def setup_status():
 class SetupRequest(BaseModel):
     username: str
     password: str
+    email: str = ""
 
 @app.post("/api/setup/complete")
 async def setup_complete(body: SetupRequest, response: Response):
@@ -1634,18 +1635,22 @@ async def setup_complete(body: SetupRequest, response: Response):
         return JSONResponse({"error": "Setup already complete"}, status_code=403)
     username = body.username.strip()
     password = body.password
+    email = body.email.strip().lower()
     if not username or len(username) < 2:
         return JSONResponse({"error": "Username must be at least 2 characters"}, status_code=400)
     if not password:
         return JSONResponse({"error": "Password is required"}, status_code=400)
     data = load_panel_users()
-    data["users"].append({
+    user_obj = {
         "username": username,
         "password_hash": hash_password(password),
         "role": "owner",
         "created": datetime.now().isoformat(),
         "tokens_valid_after": 0
-    })
+    }
+    if email:
+        user_obj["email"] = email
+    data["users"].append(user_obj)
     save_panel_users(data)
     print(f"[SITREP] Owner account created via setup wizard: {username}")
     set_auth_cookies(response, username, "owner", remember=True)

@@ -232,8 +232,35 @@ function Login({onLogin}){const{C,sz}=useT();const[u,setU]=useState('');const[p,
     </div>
   </div>}
 
-function SetupWizard({onComplete}){const{C,sz}=useT();const[username,setUsername]=useState('');const[password,setPassword]=useState('');const[confirm,setConfirm]=useState('');const[err,setErr]=useState('');const[loading,setLoading]=useState(false)
-  const submit=async e=>{e.preventDefault();setErr('');if(password!==confirm){setErr('Passwords do not match');return};if(!password){setErr('Password is required');return};setLoading(true);try{const r=await fetch(`${API}/setup/complete`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});const d=await r.json();if(d.error){setErr(d.error);setLoading(false);return};onComplete({username:d.username,role:d.role})}catch{setErr('Connection error');setLoading(false)}}
+function SetupWizard({onComplete}){const{C,sz}=useT()
+  const[step,setStep]=useState('account') // account | 2fa-prompt | 2fa-setup | 2fa-backup
+  const[username,setUsername]=useState('');const[email,setEmail]=useState('');const[password,setPassword]=useState('');const[confirm,setConfirm]=useState('')
+  const[err,setErr]=useState('');const[loading,setLoading]=useState(false)
+  const[createdUser,setCreatedUser]=useState(null)
+  // 2FA setup state
+  const[twoFaSecret,setTwoFaSecret]=useState('');const[twoFaQr,setTwoFaQr]=useState('')
+  const[twoFaCode,setTwoFaCode]=useState('');const[twoFaErr,setTwoFaErr]=useState('')
+  const[twoFaLoading,setTwoFaLoading]=useState(false);const[backupCodes,setBackupCodes]=useState([])
+
+  const submitAccount=async e=>{e.preventDefault();setErr('')
+    if(password!==confirm){setErr('Passwords do not match');return}
+    if(!password){setErr('Password is required');return}
+    if(!email){setErr('Recovery email is required');return}
+    setLoading(true)
+    try{const r=await fetch(`${API}/setup/complete`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password,email})});const d=await r.json()
+      if(d.error){setErr(d.error);setLoading(false);return}
+      setCreatedUser({username:d.username,role:d.role});setStep('2fa-prompt')}catch{setErr('Connection error')}setLoading(false)}
+
+  const start2fa=async()=>{setTwoFaLoading(true);setTwoFaErr('')
+    try{const r=await fetch(`${API}/auth/2fa/setup`);const d=await r.json()
+      if(d.error){setTwoFaErr(d.error);setTwoFaLoading(false);return}
+      setTwoFaSecret(d.secret);setTwoFaQr(d.qr);setStep('2fa-setup')}catch{setTwoFaErr('Connection error')}setTwoFaLoading(false)}
+
+  const confirm2fa=async()=>{setTwoFaLoading(true);setTwoFaErr('')
+    try{const r=await fetch(`${API}/auth/2fa/enable`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({secret:twoFaSecret,code:twoFaCode.replace(/\s/g,'')})});const d=await r.json()
+      if(d.error){setTwoFaErr(d.error);setTwoFaLoading(false);return}
+      setBackupCodes(d.backup_codes);setStep('2fa-backup')}catch{setTwoFaErr('Connection error')}setTwoFaLoading(false)}
+
   return<div className="min-h-screen flex items-center justify-center p-4" style={{background:C.bg}}>
     <div className="w-full max-w-sm">
       <div className="text-center mb-8">
@@ -241,17 +268,59 @@ function SetupWizard({onComplete}){const{C,sz}=useT();const[username,setUsername
         <div className="font-bold uppercase tracking-widest" style={{color:C.textMuted,fontSize:sz.stat}}>First-Time Setup</div>
       </div>
       <div className="rounded-2xl p-8" style={{background:C.bgCard,border:`1px solid ${C.border}`}}>
-        <div className="mb-5 px-3 py-3 rounded-lg" style={{background:C.accentBg,border:`1px solid ${C.accent}30`}}>
-          <div className="font-bold" style={{color:C.accent,fontSize:sz.base}}>Create your owner account</div>
-          <div style={{color:C.textDim,fontSize:sz.stat,marginTop:4}}>This account has full control of the panel. You can add more users after setup.</div>
-        </div>
-        <form onSubmit={submit}>
-          <Input label="Username" value={username} onChange={setUsername} placeholder="e.g. admin"/>
-          <Input label="Password" value={password} onChange={setPassword} type="password" placeholder="password"/>
-          <Input label="Confirm Password" value={confirm} onChange={setConfirm} type="password" placeholder="repeat password"/>
-          {err&&<div className="mb-3 px-3 py-2.5 rounded-lg font-bold" style={{background:C.redBg,color:C.red,border:`1px solid ${C.redBorder}`,fontSize:sz.stat}}>{err}</div>}
-          <button type="submit" disabled={loading||!username||!password||!confirm} className="w-full py-3 rounded-xl font-black uppercase tracking-widest cursor-pointer disabled:opacity-50 transition-all" style={{background:C.accent,color:'#000',fontSize:sz.base}}>{loading?'Creating...':'Create Account & Enter'}</button>
-        </form>
+
+        {step==='account'&&<>
+          <div className="mb-5 px-3 py-3 rounded-lg" style={{background:C.accentBg,border:`1px solid ${C.accent}30`}}>
+            <div className="font-bold" style={{color:C.accent,fontSize:sz.base}}>Create your owner account</div>
+            <div style={{color:C.textDim,fontSize:sz.stat,marginTop:4}}>This account has full control of the panel. You can add more users after setup.</div>
+          </div>
+          <form onSubmit={submitAccount}>
+            <Input label="Username" value={username} onChange={setUsername} placeholder="e.g. admin"/>
+            <Input label="Recovery Email" value={email} onChange={setEmail} type="email" placeholder="your@email.com"/>
+            <Input label="Password" value={password} onChange={setPassword} type="password" placeholder="password"/>
+            <Input label="Confirm Password" value={confirm} onChange={setConfirm} type="password" placeholder="repeat password"/>
+            {err&&<div className="mb-3 px-3 py-2.5 rounded-lg font-bold" style={{background:C.redBg,color:C.red,border:`1px solid ${C.redBorder}`,fontSize:sz.stat}}>{err}</div>}
+            <button type="submit" disabled={loading||!username||!password||!confirm||!email} className="w-full py-3 rounded-xl font-black uppercase tracking-widest cursor-pointer disabled:opacity-50 transition-all" style={{background:C.accent,color:'#000',fontSize:sz.base}}>{loading?'Creating...':'Create Account'}</button>
+          </form>
+        </>}
+
+        {step==='2fa-prompt'&&<>
+          <div className="text-center mb-5">
+            <div className="font-black mb-2" style={{color:C.textBright,fontSize:sz.base+4}}>Account created!</div>
+            <div style={{color:C.textDim,fontSize:sz.base}}>Welcome, <strong>{createdUser?.username}</strong>.</div>
+          </div>
+          <div className="mb-5 px-4 py-4 rounded-xl" style={{background:C.orange+'12',border:`1px solid ${C.orange}40`}}>
+            <div className="font-black mb-1" style={{color:C.orange,fontSize:sz.base}}>Recommended: Enable 2FA</div>
+            <div style={{color:C.textDim,fontSize:sz.stat,lineHeight:1.6}}>Two-factor authentication protects your account even if your password is compromised. Takes 30 seconds to set up.</div>
+          </div>
+          {twoFaErr&&<div className="mb-3 px-3 py-2.5 rounded-lg font-bold" style={{background:C.redBg,color:C.red,border:`1px solid ${C.redBorder}`,fontSize:sz.stat}}>{twoFaErr}</div>}
+          <button onClick={start2fa} disabled={twoFaLoading} className="w-full py-3 rounded-xl font-black uppercase tracking-widest cursor-pointer disabled:opacity-50 transition-all mb-3" style={{background:C.orange,color:'#000',fontSize:sz.base}}>{twoFaLoading?'Loading...':'Set Up 2FA Now'}</button>
+          <button onClick={()=>onComplete(createdUser)} className="w-full py-2.5 rounded-xl font-bold cursor-pointer" style={{background:'transparent',color:C.textMuted,fontSize:sz.base,border:`1px solid ${C.border}`}}>Skip for now</button>
+        </>}
+
+        {step==='2fa-setup'&&<>
+          <div className="font-black mb-1" style={{color:C.textBright,fontSize:sz.base+2}}>Set up authenticator</div>
+          <div style={{color:C.textDim,fontSize:sz.base,marginBottom:12}}>Scan with <strong>Google Authenticator</strong>, <strong>Authy</strong>, or any TOTP app.</div>
+          <img src={twoFaQr} alt="QR Code" style={{width:180,height:180,borderRadius:8,marginBottom:12,display:'block',margin:'0 auto 12px'}}/>
+          <div style={{color:C.textMuted,fontSize:sz.stat,marginBottom:4,textAlign:'center'}}>Or enter key manually:</div>
+          <div className="font-mono px-3 py-2 rounded-lg mb-4 text-center select-all" style={{background:C.bgInput,color:C.accent,fontSize:sz.stat,letterSpacing:'0.1em'}}>{twoFaSecret}</div>
+          <div style={{color:C.textDim,fontSize:sz.base,marginBottom:8}}>Enter the 6-digit code to confirm:</div>
+          <input value={twoFaCode} onChange={e=>setTwoFaCode(e.target.value)} placeholder="000000" maxLength={6} inputMode="numeric" autoFocus className="w-full rounded-lg px-3 py-2.5 outline-none font-mono text-center mb-3" style={{background:C.bgInput,border:`1px solid ${C.border}`,color:C.text,fontSize:sz.base+2,letterSpacing:'0.3em'}}/>
+          {twoFaErr&&<div className="mb-3 px-3 py-2 rounded-lg font-bold" style={{background:C.redBg,color:C.red,border:`1px solid ${C.redBorder}`,fontSize:sz.stat}}>{twoFaErr}</div>}
+          <button onClick={confirm2fa} disabled={twoFaLoading||twoFaCode.length<6} className="w-full py-3 rounded-xl font-black uppercase tracking-widest cursor-pointer disabled:opacity-50 transition-all mb-3" style={{background:C.accent,color:'#000',fontSize:sz.base}}>{twoFaLoading?'Verifying...':'Confirm'}</button>
+          <button onClick={()=>onComplete(createdUser)} className="w-full py-2.5 rounded-xl font-bold cursor-pointer" style={{background:'transparent',color:C.textMuted,fontSize:sz.base,border:`1px solid ${C.border}`}}>Skip for now</button>
+        </>}
+
+        {step==='2fa-backup'&&<>
+          <div className="font-black mb-2" style={{color:C.textBright,fontSize:sz.base+2}}>2FA enabled!</div>
+          <div className="px-4 py-3 rounded-xl mb-4" style={{background:C.orange+'18',border:`1px solid ${C.orange}40`}}>
+            <div style={{fontWeight:700,color:C.orange,fontSize:sz.base,marginBottom:4}}>Save your backup codes</div>
+            <div style={{color:C.textDim,fontSize:sz.stat}}>If you lose your authenticator, these let you sign in. Each code works once. Store them safely — they won't be shown again.</div>
+          </div>
+          <div className="grid grid-cols-2 gap-2 mb-5">{backupCodes.map((c,i)=><div key={i} className="font-mono px-3 py-2 rounded-lg text-center" style={{background:C.bgInput,color:C.text,fontSize:sz.stat,border:`1px solid ${C.border}`}}>{c}</div>)}</div>
+          <button onClick={()=>onComplete(createdUser)} className="w-full py-3 rounded-xl font-black uppercase tracking-widest cursor-pointer transition-all" style={{background:C.accent,color:'#000',fontSize:sz.base}}>Enter Panel</button>
+        </>}
+
       </div>
     </div>
   </div>}
