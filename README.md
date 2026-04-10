@@ -299,6 +299,47 @@ sudo systemctl start sitrep-api
 
 ---
 
+## Opening Ports
+
+### OS Firewall (UFW)
+
+The installer opens the required ports automatically if UFW is active. To open them manually:
+
+```bash
+sudo ufw allow 8000/tcp   # SITREP panel
+sudo ufw allow 2001/udp   # Arma game traffic
+sudo ufw allow 17777/udp  # Arma server browser / query
+sudo ufw allow 19999/tcp  # RCON
+sudo ufw reload
+```
+
+### Router Port Forwarding
+
+To make your server reachable from the internet, forward these ports on your router to your server's **local IP address**:
+
+| Port | Protocol | Purpose |
+|------|----------|---------|
+| 2001 | UDP | Arma Reforger — game traffic |
+| 17777 | UDP | Arma Reforger — server browser / Steam query |
+| 19999 | TCP | RCON (optional — only if you need remote RCON access) |
+| 8000 | TCP | SITREP panel (optional — only if you want remote panel access) |
+
+**How to forward ports (general steps):**
+1. Find your router's admin page — usually `http://192.168.1.1` or `http://192.168.0.1` in your browser
+2. Log in (check the label on your router for the default credentials)
+3. Find **Port Forwarding** — sometimes listed under Advanced, NAT, or Firewall
+4. Add a rule for each port above: set the internal IP to your server's local IP (e.g. `192.168.1.50`), the internal and external port to the same number, and the protocol as shown
+5. Save and apply
+
+Your server's local IP is shown when the installer runs, or you can find it with:
+```bash
+hostname -I | awk '{print $1}'
+```
+
+> **Tip:** Assign your server a static local IP in your router's DHCP settings so the forwarding rules don't break after a reboot.
+
+---
+
 ## Updating
 
 ```bash
@@ -358,7 +399,8 @@ journalctl -u sitrep-api -n 50 --no-pager
 
 **"Backend unreachable" in browser**
 - Check the service: `sudo systemctl status sitrep-api`
-- Open the firewall port: `sudo ufw allow 8000/tcp`
+- Open the firewall port: `sudo ufw allow 8000/tcp` (the installer does this automatically if UFW is active)
+- If accessing from outside your network, make sure port 8000 is forwarded on your router — see [Opening Ports](#opening-ports)
 
 **Can't start/stop the Arma server**
 - Verify the `arma-reforger` service exists: `sudo systemctl status arma-reforger`

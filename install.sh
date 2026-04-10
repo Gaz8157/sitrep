@@ -291,6 +291,22 @@ systemctl enable sitrep-api
 systemctl restart sitrep-api
 sleep 3
 
+# ── Firewall (UFW) ────────────────────────────────────────────────────────────
+if command -v ufw &>/dev/null; then
+    if ufw status 2>/dev/null | grep -q "Status: active"; then
+        info "Opening firewall ports..."
+        ufw allow 8000/tcp  comment 'SITREP Panel'   >/dev/null
+        ufw allow 2001/udp  comment 'Arma Reforger game' >/dev/null
+        ufw allow 17777/udp comment 'Arma Reforger query' >/dev/null
+        ufw allow 19999/tcp comment 'Arma Reforger RCON'  >/dev/null
+        success "UFW: opened ports 8000 (panel), 2001/17777 (game), 19999 (RCON)"
+    else
+        info "UFW not active — skipping firewall rules"
+        info "If you enable UFW later, open these ports:"
+        info "  sudo ufw allow 8000/tcp 2001/udp 17777/udp 19999/tcp"
+    fi
+fi
+
 # ── Done ─────────────────────────────────────────────────────────────────────
 PANEL_URL_DISPLAY=$(grep '^PANEL_URL=' "$INSTALL_DIR/.env" | cut -d= -f2-)
 
