@@ -242,14 +242,22 @@ if [[ ! -f "$INSTALL_DIR/.env" ]]; then
     LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
     DEFAULT_URL="http://${LOCAL_IP}:8000"
     [[ "$IS_WSL" == "true" ]] && DEFAULT_URL="http://localhost:8000"
-    echo ""
-    info "Set your panel URL (how users will access it):"
-    echo -e "  ${BOLD}Local network:${NC}  http://${LOCAL_IP}:8000"
-    echo -e "  ${BOLD}With domain:${NC}    https://panel.yourdomain.com"
-    [[ "$IS_WSL" == "true" ]] && echo -e "  ${BOLD}WSL / Windows:${NC}  http://localhost:8000"
-    echo ""
-    read -rp "PANEL_URL [$DEFAULT_URL]: " PANEL_URL
-    PANEL_URL="${PANEL_URL:-$DEFAULT_URL}"
+
+    # On WSL, piped installs (curl | bash) have no interactive terminal —
+    # auto-accept the default instead of hanging on a read prompt.
+    if [[ "$IS_WSL" == "true" ]] || ! [ -t 0 ]; then
+        PANEL_URL="$DEFAULT_URL"
+        info "PANEL_URL set to: $PANEL_URL"
+        info "To change it: edit $INSTALL_DIR/.env and run: sudo systemctl restart sitrep-api"
+    else
+        echo ""
+        info "Set your panel URL (how users will access it):"
+        echo -e "  ${BOLD}Local network:${NC}  http://${LOCAL_IP}:8000"
+        echo -e "  ${BOLD}With domain:${NC}    https://panel.yourdomain.com"
+        echo ""
+        read -rp "PANEL_URL [$DEFAULT_URL]: " PANEL_URL
+        PANEL_URL="${PANEL_URL:-$DEFAULT_URL}"
+    fi
     printf 'PANEL_URL=%s\nPANEL_INSTALL_DIR=%s\n' "$PANEL_URL" "$INSTALL_DIR" > "$INSTALL_DIR/.env"
     success ".env created"
 fi
