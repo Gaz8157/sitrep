@@ -6,18 +6,29 @@ import { FloatingPanel } from '../components/ui.jsx'
 const TRACKER_PANEL_LABELS = { players: 'Players', events: 'Events', fields: 'Fields', filters: 'Filters' }
 
 const TRACKER_FIELDS = [
-  { id: 'status',   label: 'Status',          on: true  },
-  { id: 'faction',  label: 'Faction',          on: true  },
-  { id: 'health',   label: 'Health',           on: true  },
-  { id: 'grid',     label: 'Grid 8',           on: true  },
-  { id: 'grid_10',  label: 'Grid 10',          on: true  },
-  { id: 'heading',  label: 'Heading',          on: true  },
-  { id: 'vehicle',  label: 'Vehicle',          on: true  },
-  { id: 'squad',    label: 'Squad',            on: true  },
-  { id: 'location', label: 'Location',         on: true  },
-  { id: 'elevation',label: 'Elevation',        on: true  },
-  { id: 'uid',      label: 'UID',              on: true  },
+  { id: 'status',   label: 'Status',    on: true  },
+  { id: 'faction',  label: 'Faction',   on: true  },
+  { id: 'health',   label: 'Health',    on: true  },
+  { id: 'grid',     label: 'Grid 8',    on: true  },
+  { id: 'grid_10',  label: 'Grid 10',   on: true  },
+  { id: 'heading',  label: 'Heading',   on: true  },
+  { id: 'squad',    label: 'Squad',     on: true  },
+  { id: 'location', label: 'Location',  on: true  },
+  { id: 'elevation',label: 'Elevation', on: true  },
+  { id: 'uid',      label: 'UID',       on: true  },
 ]
+
+// Translate Arma localization keys like "#AR-MapLocation_EntreDeux" into "Entre Deux".
+function fmtLocName(name) {
+  if (!name) return name
+  let n = String(name)
+  n = n.replace(/^#AR-?(MapLocation|Location|Area|City|Town|Village|Hill|Landmark)_/i, '')
+  n = n.replace(/^#[A-Za-z]+_/, '')  // any other Arma localization prefix
+  n = n.replace(/_/g, ' ')
+  n = n.replace(/([a-z])([A-Z])/g, '$1 $2')
+  n = n.replace(/\s+/g, ' ').trim()
+  return n
+}
 
 const EVENT_COLORS = {
   player_killed:  { text: '#f87171', bg: '#7f1d1d22', label: 'KILL'   },
@@ -50,19 +61,25 @@ function HealthBar({ value, C, slim }) {
   )
 }
 
-function RoleBadges({ player, C, size = 8 }) {
+function RoleBadges({ player, C, size = 10 }) {
   const badges = []
-  if (player.is_admin)        badges.push({ label: 'ADM', color: '#fb923c' })
-  if (player.is_gm)           badges.push({ label: 'GM',  color: C.accent })
-  if (player.is_squad_leader) badges.push({ label: 'SL',  color: '#60a5fa' })
+  if (player.is_admin)        badges.push({ label: 'ADMIN', color: '#60a5fa' })
+  if (player.is_gm)           badges.push({ label: 'GM',    color: C.accent  })
+  if (player.is_squad_leader) badges.push({ label: 'SL',    color: '#fb923c' })
   if (badges.length === 0) return null
   return (
-    <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
+    <div style={{ display: 'flex', gap: 3, flexShrink: 0, alignItems: 'center' }}>
       {badges.map(r => (
         <span key={r.label} style={{
-          fontSize: size, fontWeight: 900, padding: '1px 3px', borderRadius: 3,
-          background: r.color + '20', color: r.color, border: `1px solid ${r.color}40`,
-          lineHeight: 1.2, letterSpacing: '0.02em',
+          fontSize: size,
+          fontWeight: 900,
+          padding: size >= 11 ? '2px 6px' : '1px 5px',
+          borderRadius: 4,
+          background: r.color + '22',
+          color: r.color,
+          border: `1px solid ${r.color}55`,
+          lineHeight: 1.2,
+          letterSpacing: '0.04em',
         }}>{r.label}</span>
       ))}
     </div>
@@ -87,12 +104,14 @@ function TrackerPlayerCard({ player, fields, expanded, onToggle, C, sz }) {
   const status = player.status || 'unspawned'
   const statusColor = STATUS_COLOR[status] || '#6b7280'
   const isDead = status === 'dead'
+  const locName = player.nearest_location?.name ? fmtLocName(player.nearest_location.name) : null
+  const locDist = player.nearest_location?.dist_m >= 0 ? Math.round(player.nearest_location.dist_m) : null
 
   const baseStyle = {
     background: C.bgCard,
     border: `1px solid ${expanded ? C.accent + '70' : C.border}`,
-    borderRadius: 6,
-    opacity: isDead ? 0.6 : 1,
+    borderRadius: 7,
+    opacity: isDead ? 0.65 : 1,
     cursor: 'pointer',
     transition: 'border-color 150ms',
     minWidth: 0,
@@ -103,48 +122,84 @@ function TrackerPlayerCard({ player, fields, expanded, onToggle, C, sz }) {
 
   if (!expanded) {
     return (
-      <div onClick={onToggle} style={{ ...baseStyle, padding: '6px 8px' }}
+      <div onClick={onToggle} style={{ ...baseStyle, padding: '7px 9px', display: 'flex', flexDirection: 'column', gap: 4 }}
         onMouseEnter={e => e.currentTarget.style.borderColor = C.accent + '50'}
         onMouseLeave={e => e.currentTarget.style.borderColor = C.border}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3, minWidth: 0 }}>
-          <div style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor, flexShrink: 0 }} />
-          <span style={{ color: C.textBright, fontSize: sz.stat, fontWeight: 700, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{player.name || '?'}</span>
-          <RoleBadges player={player} C={C} size={7} />
+        {/* Name row: status · name · role badges */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          <div style={{ width: 7, height: 7, borderRadius: '50%', background: statusColor, flexShrink: 0, boxShadow: `0 0 4px ${statusColor}80` }} />
+          <span style={{ color: C.textBright, fontSize: sz.stat + 1, fontWeight: 800, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{player.name || '?'}</span>
+          <RoleBadges player={player} C={C} size={9} />
         </div>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, fontSize: sz.stat - 2, color: C.textDim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 3 }}>
-          {on('faction') && player.faction && <span>{player.faction}</span>}
-          {on('grid') && player.grid && <span style={{ fontFamily: 'monospace', color: C.text }}>{player.grid}</span>}
-          {on('vehicle') && player.in_vehicle && <span style={{ color: C.accent, fontWeight: 700 }}>VEH</span>}
-        </div>
+        {/* Faction + grid row */}
+        {(on('faction') && player.faction) || (on('grid') && player.grid) ? (
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, fontSize: sz.stat, minWidth: 0 }}>
+            {on('faction') && player.faction && (
+              <span style={{ color: C.accent, fontWeight: 700, flexShrink: 0 }}>{player.faction}</span>
+            )}
+            {on('grid') && player.grid && (
+              <span style={{ fontFamily: 'monospace', color: C.text, fontWeight: 600, marginLeft: 'auto' }}>{player.grid}</span>
+            )}
+          </div>
+        ) : null}
+        {/* Squad row (when present) */}
+        {on('squad') && player.squad_id >= 0 && (
+          <div style={{ fontSize: sz.stat - 1, color: C.textDim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {player.squad_name || `Squad ${player.squad_id}`}
+          </div>
+        )}
+        {/* Nearest location row (when present) */}
+        {on('location') && locName && (
+          <div style={{ fontSize: sz.stat - 1, color: C.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {locName}{locDist != null ? ` · ${locDist}m` : ''}
+          </div>
+        )}
+        {/* Health bar */}
         {on('health') && player.health != null && <HealthBar value={player.health} C={C} slim />}
       </div>
     )
   }
 
   return (
-    <div onClick={onToggle} style={{ ...baseStyle, padding: '10px 12px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8, minWidth: 0 }}>
-        <div style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor, flexShrink: 0 }} />
-        <span style={{ color: C.textBright, fontSize: sz.base + 1, fontWeight: 700, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{player.name || '?'}</span>
-        <RoleBadges player={player} C={C} size={9} />
+    <div onClick={onToggle} style={{ ...baseStyle, padding: '11px 13px', display: 'flex', flexDirection: 'column', gap: 9 }}>
+      {/* Name row */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+        <div style={{ width: 9, height: 9, borderRadius: '50%', background: statusColor, flexShrink: 0, boxShadow: `0 0 6px ${statusColor}80` }} />
+        <span style={{ color: C.textBright, fontSize: sz.base + 2, fontWeight: 800, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{player.name || '?'}</span>
+        <RoleBadges player={player} C={C} size={11} />
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '3px 10px' }}>
+      {/* Field grid — primary two-column rows */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 14px' }}>
         {on('status') && <Row label="Status" value={<span style={{ color: statusColor, fontWeight: 700 }}>{status}</span>} C={C} sz={sz} />}
-        {on('faction') && player.faction && <Row label="Faction" value={player.faction} C={C} sz={sz} />}
-        {on('grid') && player.grid && <Row label="Grid" value={<span style={{ fontFamily: 'monospace' }}>{player.grid}</span>} C={C} sz={sz} />}
-        {on('grid_10') && player.grid_10 && <Row label="Grid 10" value={<span style={{ fontFamily: 'monospace' }}>{player.grid_10}</span>} C={C} sz={sz} />}
-        {on('heading') && player.heading != null && <Row label="Hdg" value={`${player.heading}° ${player.heading_dir || ''}`} C={C} sz={sz} />}
-        {on('elevation') && player.elevation != null && <Row label="Elev" value={`${Math.round(player.elevation)}m`} C={C} sz={sz} />}
-        {on('vehicle') && player.in_vehicle && <Row label="Vehicle" value={player.vehicle_type || 'yes'} C={C} sz={sz} />}
+        {on('faction') && player.faction && <Row label="Faction" value={<span style={{ color: C.accent, fontWeight: 700 }}>{player.faction}</span>} C={C} sz={sz} />}
+        {on('grid') && player.grid && <Row label="Grid 8" value={<span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{player.grid}</span>} C={C} sz={sz} />}
+        {on('grid_10') && player.grid_10 && <Row label="Grid 10" value={<span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{player.grid_10}</span>} C={C} sz={sz} />}
+        {on('heading') && player.heading != null && <Row label="Heading" value={`${player.heading}° ${player.heading_dir || ''}`} C={C} sz={sz} />}
+        {on('elevation') && player.elevation != null && <Row label="Elevation" value={`${Math.round(player.elevation)}m`} C={C} sz={sz} />}
         {on('squad') && player.squad_id >= 0 && <Row label="Squad" value={player.squad_name || `Sqd ${player.squad_id}`} C={C} sz={sz} />}
-        {on('location') && player.nearest_location?.name && <Row label="Near" value={`${player.nearest_location.name}${player.nearest_location.dist_m >= 0 ? ' (' + Math.round(player.nearest_location.dist_m) + 'm)' : ''}`} C={C} sz={sz} />}
-        {on('uid') && player.uid && <Row label="UID" value={<span style={{ fontFamily: 'monospace', fontSize: 9 }}>{player.uid}</span>} C={C} sz={sz} />}
       </div>
-      {on('health') && player.health != null && (
-        <div style={{ marginTop: 8 }}>
-          <HealthBar value={player.health} C={C} />
-        </div>
+      {/* Full-width rows (wrapping values) */}
+      {on('location') && locName && (
+        <FullRow label="Near" C={C} sz={sz}>
+          {locName}{locDist != null ? <span style={{ color: C.textMuted, marginLeft: 4 }}>({locDist}m)</span> : null}
+        </FullRow>
       )}
+      {on('uid') && player.uid && (
+        <FullRow label="UID" C={C} sz={sz}>
+          <span style={{ fontFamily: 'monospace', fontSize: sz.stat - 1, wordBreak: 'break-all', display: 'inline-block' }}>{player.uid}</span>
+        </FullRow>
+      )}
+      {/* Health bar */}
+      {on('health') && player.health != null && <HealthBar value={player.health} C={C} />}
+    </div>
+  )
+}
+
+function FullRow({ label, children, C, sz }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
+      <span style={{ color: C.textMuted, fontSize: sz.stat - 1, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</span>
+      <span style={{ color: C.text, fontSize: sz.stat, wordBreak: 'break-word' }}>{children}</span>
     </div>
   )
 }
@@ -525,6 +580,83 @@ function StorageTab({ settings, onSave, C, sz }) {
   )
 }
 
+function DangerTab({ onAfterClear, C, sz }) {
+  const [confirmTarget, setConfirmTarget] = useState(null)
+  const [clearing, setClearing] = useState(false)
+  const [result, setResult] = useState(null)
+
+  const TARGETS = [
+    { id: 'snapshots', label: 'Player Snapshots',      desc: 'Drops all in-memory player position/state data. Live tracker grid will be empty until next mod ping.', impact: 'medium' },
+    { id: 'events',    label: 'Event Ring Buffer',     desc: 'Drops all recent kill/join/leave/vote events from memory. Forwarded destinations unaffected.',            impact: 'medium' },
+    { id: 'sqlite',    label: 'SQLite Database',       desc: 'Deletes the entire tracker.db file on disk. All historical snapshots and events are permanently lost.',   impact: 'high'   },
+    { id: 'all',       label: 'EVERYTHING',            desc: 'Snapshots + events + SQLite DB. Complete wipe. This cannot be undone.',                                     impact: 'high'   },
+  ]
+
+  const doClear = async (target) => {
+    setClearing(true); setResult(null)
+    try {
+      const r = await fetch(`${API}/tracker/clear`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target }) })
+      const d = await r.json().catch(() => ({}))
+      setResult({ ok: r.ok, text: r.ok ? (d.message || `Cleared ${target}`) : (d.error || 'Failed') })
+      if (r.ok && onAfterClear) onAfterClear()
+    } catch (e) {
+      setResult({ ok: false, text: String(e) })
+    } finally {
+      setClearing(false); setConfirmTarget(null)
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ background: '#7f1d1d22', border: `1px solid ${C.red}60`, borderRadius: 8, padding: '10px 14px' }}>
+        <div style={{ color: C.red, fontSize: sz.stat, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>⚠ DANGER ZONE</div>
+        <div style={{ color: C.red, fontSize: sz.stat - 1, lineHeight: 1.4 }}>
+          These actions permanently destroy tracker data. There is no undo. Double-check before confirming.
+        </div>
+      </div>
+
+      {TARGETS.map(t => {
+        const isConfirming = confirmTarget === t.id
+        const barColor = t.impact === 'high' ? C.red : '#fb923c'
+        return (
+          <div key={t.id} style={{ background: C.bgInput, border: `1px solid ${isConfirming ? C.red + '80' : C.border}`, borderLeft: `3px solid ${barColor}`, borderRadius: 7, padding: '10px 12px', transition: 'border-color 120ms' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+              <span style={{ color: t.impact === 'high' ? C.red : C.textBright, fontSize: sz.stat + 1, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.03em' }}>{t.label}</span>
+              {!isConfirming ? (
+                <button
+                  onClick={() => setConfirmTarget(t.id)}
+                  disabled={clearing}
+                  style={{ fontSize: sz.stat - 1, padding: '4px 12px', borderRadius: 5, border: `1px solid ${C.red}50`, background: C.redBg || C.red + '15', color: C.red, cursor: 'pointer', fontWeight: 700 }}
+                >Clear…</button>
+              ) : (
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button
+                    onClick={() => doClear(t.id)}
+                    disabled={clearing}
+                    style={{ fontSize: sz.stat - 1, padding: '4px 12px', borderRadius: 5, border: `1px solid ${C.red}`, background: C.red, color: '#fff', cursor: 'pointer', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.05em' }}
+                  >{clearing ? 'Clearing…' : 'Yes, Destroy'}</button>
+                  <button
+                    onClick={() => setConfirmTarget(null)}
+                    disabled={clearing}
+                    style={{ fontSize: sz.stat - 1, padding: '4px 12px', borderRadius: 5, border: `1px solid ${C.border}`, background: 'transparent', color: C.textDim, cursor: 'pointer' }}
+                  >Cancel</button>
+                </div>
+              )}
+            </div>
+            <div style={{ color: C.textMuted, fontSize: sz.stat - 1, lineHeight: 1.4 }}>{t.desc}</div>
+          </div>
+        )
+      })}
+
+      {result && (
+        <div style={{ background: result.ok ? '#14532d22' : '#7f1d1d33', border: `1px solid ${result.ok ? '#4ade8060' : C.red}`, borderRadius: 7, padding: '8px 12px', color: result.ok ? '#4ade80' : C.red, fontSize: sz.stat }}>
+          {result.ok ? '✓ ' : '✕ '}{result.text}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SettingsModal({ open, onClose, role, C, sz }) {
   const [tab, setTab] = useState('receiver')
   const [settings, setSettings] = useState(null)
@@ -554,6 +686,7 @@ function SettingsModal({ open, onClose, role, C, sz }) {
     { id: 'forwarding', label: 'Forwarding' },
     { id: 'retention', label: 'Retention' },
     { id: 'storage', label: 'Storage' },
+    { id: 'danger', label: 'Danger', danger: true },
   ]
 
   if (!open) return null
@@ -565,17 +698,22 @@ function SettingsModal({ open, onClose, role, C, sz }) {
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: C.textDim, cursor: 'pointer', fontSize: 18, fontWeight: 900, lineHeight: 1 }}>✕</button>
         </div>
         <div style={{ display: 'flex', gap: 2, padding: '10px 18px 0', borderBottom: `1px solid ${C.border}` }}>
-          {MODAL_TABS.map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)} style={{ fontSize: sz.stat, padding: '5px 12px', borderRadius: '5px 5px 0 0', border: `1px solid ${tab === t.id ? C.border : 'transparent'}`, borderBottom: tab === t.id ? `1px solid ${C.bgCard}` : 'none', background: tab === t.id ? C.bgCard : 'transparent', color: tab === t.id ? C.textBright : C.textMuted, cursor: 'pointer', fontWeight: tab === t.id ? 700 : 400, marginBottom: -1 }}>
-              {t.label}
-            </button>
-          ))}
+          {MODAL_TABS.map(t => {
+            const isActive = tab === t.id
+            const col = t.danger ? C.red : C.textBright
+            return (
+              <button key={t.id} onClick={() => setTab(t.id)} style={{ fontSize: sz.stat, padding: '5px 12px', borderRadius: '5px 5px 0 0', border: `1px solid ${isActive ? C.border : 'transparent'}`, borderBottom: isActive ? `1px solid ${C.bgCard}` : 'none', background: isActive ? C.bgCard : 'transparent', color: isActive ? col : (t.danger ? C.red + 'B0' : C.textMuted), cursor: 'pointer', fontWeight: isActive || t.danger ? 700 : 400, marginBottom: -1 }}>
+                {t.label}
+              </button>
+            )
+          })}
         </div>
         <div style={{ flex: 1, overflow: 'auto', padding: 18 }}>
           {tab === 'receiver' && <ReceiverTab keyInfo={keyInfo} onRotate={load} status={status} C={C} sz={sz} />}
           {tab === 'forwarding' && <ForwardingTab settings={settings} onSave={saveSettings} forwardStatus={forwardStatus} C={C} sz={sz} />}
           {tab === 'retention' && <RetentionTab settings={settings} onSave={saveSettings} C={C} sz={sz} />}
           {tab === 'storage' && <StorageTab settings={settings} onSave={saveSettings} C={C} sz={sz} />}
+          {tab === 'danger' && <DangerTab onAfterClear={load} C={C} sz={sz} />}
         </div>
       </div>
     </div>
@@ -589,15 +727,21 @@ export default function Tracker({ role }) {
   const [data, setData] = useState(null)
   const [fields, setFields] = useState(TRACKER_FIELDS)
   const [showSettings, setShowSettings] = useState(false)
-  const [showClear, setShowClear] = useState(false)
-  const [clearing, setClearing] = useState(false)
   const [filterFaction, setFilterFaction] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
-  const [density, setDensity] = useState('S')
+  const [density, setDensity] = useState(() => localStorage.getItem('tracker-density') || 'M')
   const [expandedCards, setExpandedCards] = useState(() => new Set())
   const [floating, setFloating] = useState(() => { try { const s = localStorage.getItem('tracker-float'); return s ? JSON.parse(s) : {} } catch { return {} } })
   const [hidden, setHidden] = useState(() => { try { const s = localStorage.getItem('tracker-hidden'); return s ? JSON.parse(s) : {} } catch { return {} } })
+  const [eventsDockPos, setEventsDockPos] = useState(() => localStorage.getItem('tracker-events-pos') || 'right')
+  const [eventsSize, setEventsSize] = useState(() => { const v = parseInt(localStorage.getItem('tracker-events-size') || '', 10); return Number.isFinite(v) && v > 0 ? v : 280 })
+  const eventsResizeRef = useRef(null)
+  const mainSplitRef = useRef(null)
   const pollRef = useRef(null)
+
+  const persistDensity = (d) => { persistDensity(d); try { localStorage.setItem('tracker-density', d) } catch {} }
+  const persistEventsPos = (p) => { setEventsDockPos(p); try { localStorage.setItem('tracker-events-pos', p) } catch {} }
+  const persistEventsSize = (n) => { setEventsSize(n); try { localStorage.setItem('tracker-events-size', String(n)) } catch {} }
 
   const detach = (id) => setFloating(p => { const n = { ...p, [id]: { x: 140 + Object.keys(p).length * 32, y: 90 + Object.keys(p).length * 32 } }; try { localStorage.setItem('tracker-float', JSON.stringify(n)) } catch {}; return n })
   const dock   = (id) => setFloating(p => { const n = { ...p }; delete n[id]; try { localStorage.setItem('tracker-float', JSON.stringify(n)) } catch {}; return n })
@@ -625,15 +769,6 @@ export default function Tracker({ role }) {
     pollRef.current = setInterval(load, 5000)
     return () => clearInterval(pollRef.current)
   }, [load])
-
-  const doClear = async (target) => {
-    setClearing(true)
-    setShowClear(false)
-    try {
-      await fetch(`${API}/tracker/clear`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target }) })
-      await load()
-    } finally { setClearing(false) }
-  }
 
   const toggleField = (id) => setFields(prev => prev.map(f => f.id === id ? { ...f, on: !f.on } : f))
 
@@ -742,7 +877,7 @@ export default function Tracker({ role }) {
             <span style={{ color: C.textMuted, fontSize: sz.stat - 1 }}>Density</span>
             <div style={{ display: 'flex', borderRadius: 5, border: `1px solid ${C.border}`, overflow: 'hidden' }}>
               {Object.keys(DENSITY).map(d => (
-                <button key={d} onClick={() => setDensity(d)} style={{ fontSize: sz.stat - 1, padding: '3px 8px', background: density === d ? C.accent + '20' : 'transparent', color: density === d ? C.accent : C.textMuted, border: 'none', cursor: 'pointer', fontWeight: density === d ? 700 : 400 }}>{d}</button>
+                <button key={d} onClick={() => persistDensity(d)} style={{ fontSize: sz.stat - 1, padding: '3px 8px', background: density === d ? C.accent + '20' : 'transparent', color: density === d ? C.accent : C.textMuted, border: 'none', cursor: 'pointer', fontWeight: density === d ? 700 : 400 }}>{d}</button>
               ))}
             </div>
           </div>
@@ -750,25 +885,7 @@ export default function Tracker({ role }) {
             <button onClick={collapseAll} title="Collapse all expanded cards" style={{ fontSize: sz.stat - 1, padding: '3px 8px', borderRadius: 5, border: `1px solid ${C.border}`, background: 'transparent', color: C.textDim, cursor: 'pointer' }}>Collapse all</button>
           )}
           {isAdmin && (
-            <>
-              <div style={{ position: 'relative' }}>
-                <button onClick={() => setShowClear(p => !p)} disabled={clearing} style={{ fontSize: sz.stat, padding: '4px 10px', borderRadius: 5, border: `1px solid ${C.border}`, background: 'transparent', color: C.textDim, cursor: 'pointer' }}>
-                  {clearing ? 'Clearing…' : 'Clear ▾'}
-                </button>
-                {showClear && (
-                  <div style={{ position: 'absolute', right: 0, top: '100%', marginTop: 4, zIndex: 50, background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 8, padding: 6, minWidth: 140, boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}>
-                    {[['snapshots','Snapshots'], ['events','Events'], ['sqlite','SQLite DB'], ['all','Everything']].map(([t, l]) => (
-                      <button key={t} onClick={() => doClear(t)} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 10px', borderRadius: 5, background: 'transparent', border: 'none', color: t === 'all' ? C.red : C.textDim, fontSize: sz.stat, cursor: 'pointer' }}
-                        onMouseEnter={e => e.currentTarget.style.background = C.bgInput}
-                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                        {l}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <button onClick={() => setShowSettings(true)} title="Settings" style={{ fontSize: sz.stat, padding: '4px 10px', borderRadius: 5, border: `1px solid ${C.border}`, background: 'transparent', color: C.textDim, cursor: 'pointer' }}>⚙</button>
-            </>
+            <button onClick={() => setShowSettings(true)} title="Settings" style={{ fontSize: sz.stat, padding: '4px 10px', borderRadius: 5, border: `1px solid ${C.border}`, background: 'transparent', color: C.textDim, cursor: 'pointer' }}>⚙</button>
           )}
         </div>
       </div>
@@ -812,10 +929,10 @@ export default function Tracker({ role }) {
         </div>
       )}
 
-      {/* Main split: players grid (left) + events sidebar (right) */}
-      <div style={{ flex: 1, display: 'flex', gap: 8, minHeight: 0 }}>
+      {/* Main split: players + events (right or bottom) */}
+      <div ref={mainSplitRef} style={{ flex: 1, display: 'flex', flexDirection: eventsDockPos === 'bottom' ? 'column' : 'row', gap: 8, minHeight: 0 }}>
         {!floating.players && !hidden.players && (
-          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
               <span style={{ color: C.textMuted, fontSize: sz.stat - 1, textTransform: 'uppercase', letterSpacing: '0.05em', flex: 1 }}>Players ({filteredPlayers.length})</span>
               <PanelCtl id="players" />
@@ -848,9 +965,55 @@ export default function Tracker({ role }) {
           </div>
         )}
         {!floating.events && !hidden.events && (
-          <div style={{ width: 280, flexShrink: 0, display: 'flex', flexDirection: 'column', background: C.bgInput + '40', border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 10px', minHeight: 0 }}>
+          <div style={{
+            position: 'relative',
+            display: 'flex',
+            flexDirection: 'column',
+            flexShrink: 0,
+            background: C.bgInput + '40',
+            border: `1px solid ${C.border}`,
+            borderRadius: 8,
+            padding: '8px 10px',
+            minHeight: 0,
+            ...(eventsDockPos === 'right'
+              ? { width: Math.max(180, eventsSize), height: '100%' }
+              : { height: Math.max(120, eventsSize), width: '100%' }),
+          }}>
+            {/* Resize handle — left edge (right-dock) or top edge (bottom-dock) */}
+            <div
+              onMouseDown={(e) => {
+                e.preventDefault()
+                const startX = e.clientX, startY = e.clientY, startSize = eventsSize
+                const move = (ev) => {
+                  const container = mainSplitRef.current
+                  const max = container ? (eventsDockPos === 'right' ? container.clientWidth - 220 : container.clientHeight - 140) : 1200
+                  const delta = eventsDockPos === 'right' ? (startX - ev.clientX) : (startY - ev.clientY)
+                  const next = Math.min(max, Math.max(eventsDockPos === 'right' ? 180 : 120, startSize + delta))
+                  persistEventsSize(next)
+                }
+                const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); document.body.style.cursor = '' }
+                window.addEventListener('mousemove', move)
+                window.addEventListener('mouseup', up)
+                document.body.style.cursor = eventsDockPos === 'right' ? 'ew-resize' : 'ns-resize'
+              }}
+              title={eventsDockPos === 'right' ? 'Drag to resize width' : 'Drag to resize height'}
+              style={{
+                position: 'absolute',
+                ...(eventsDockPos === 'right'
+                  ? { left: -5, top: 0, bottom: 0, width: 10, cursor: 'ew-resize' }
+                  : { top: -5, left: 0, right: 0, height: 10, cursor: 'ns-resize' }),
+                zIndex: 2,
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = C.accent + '20'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            />
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
               <span style={{ color: C.textMuted, fontSize: sz.stat - 1, textTransform: 'uppercase', letterSpacing: '0.05em', flex: 1 }}>Events ({events.length})</span>
+              <button
+                onClick={() => persistEventsPos(eventsDockPos === 'right' ? 'bottom' : 'right')}
+                title={`Dock ${eventsDockPos === 'right' ? 'to bottom' : 'to right'}`}
+                style={{ background: 'none', border: `1px solid ${C.border}`, cursor: 'pointer', color: C.textMuted, fontSize: 10, padding: '1px 5px', lineHeight: 1.2, borderRadius: 4 }}
+              >{eventsDockPos === 'right' ? '▼' : '▶'}</button>
               <PanelCtl id="events" />
             </div>
             <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
