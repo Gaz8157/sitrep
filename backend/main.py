@@ -36,6 +36,21 @@ if _env_path.exists():
 # Set PANEL_URL in /opt/panel/.env — no hardcoded IPs anywhere.
 PANEL_URL = os.environ.get("PANEL_URL", "http://localhost:8000").rstrip("/")
 
+# Cookie `secure` flag: on by default, auto-off for plain-HTTP PANEL_URL so
+# local installs keep working without manual env flips. Override with
+# COOKIE_SECURE=true/false in .env to force the behavior either way.
+_cookie_secure_env = os.environ.get("COOKIE_SECURE", "").strip().lower()
+if _cookie_secure_env in ("1", "true", "yes", "on"):
+    COOKIE_SECURE = True
+elif _cookie_secure_env in ("0", "false", "no", "off"):
+    COOKIE_SECURE = False
+else:
+    COOKIE_SECURE = PANEL_URL.startswith("https://")
+
+# Misfits Admin Tool profile dir name — override with MAT_PROFILE_DIR env var
+# if you run a fork of MAT under a different folder name.
+MAT_PROFILE_DIR_NAME = os.environ.get("MAT_PROFILE_DIR", "Misfits_Logging")
+
 # SMTP — optional, enables email password reset
 SMTP_HOST = os.environ.get("SMTP_HOST", "")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
@@ -93,7 +108,7 @@ def _get_disk_stats():
 AIGM_DIR  = Path(os.environ.get("AIGM_DIR", str(Path.home() / "AIGameMaster")))
 SAFE_DIRS = [ARMA_DIR, PROFILE_DIR, AIGM_DIR]
 
-MAT_DIR       = ARMA_DIR / "profile/profile/Misfits_Logging"
+MAT_DIR       = ARMA_DIR / "profile/profile" / MAT_PROFILE_DIR_NAME
 MAT_ACTIVE    = MAT_DIR  / "logs/Active_Players.log"
 MAT_STATS     = MAT_DIR  / "logs/Server_Stats.json"
 MAT_CONN_LOGS = MAT_DIR  / "logs/connection_logs.json"
@@ -618,24 +633,28 @@ def decode_token(token: str):
     except pyjwt.PyJWTError:
         return None
 
+def set_access_cookie(response, token: str, max_age: int = 86400):
+    """Set the sitrep-access cookie with consistent flags."""
+    response.set_cookie(
+        "sitrep-access", token,
+        httponly=True, samesite="strict", secure=COOKIE_SECURE, max_age=max_age
+    )
+
 def set_auth_cookies(response, username: str, role: str, remember: bool = False, user_agent: str = ''):
     """Set sitrep-access (24h JWT) and sitrep-refresh (opaque ID) HttpOnly cookies."""
     token = create_token(username, role)
     refresh_id = create_refresh_token(username, remember=remember, user_agent=user_agent)
-    response.set_cookie(
-        "sitrep-access", token,
-        httponly=True, samesite="strict", max_age=86400
-    )
+    set_access_cookie(response, token)
     response.set_cookie(
         "sitrep-refresh", refresh_id,
-        httponly=True, samesite="strict",
+        httponly=True, samesite="strict", secure=COOKIE_SECURE,
         max_age=2592000 if remember else None  # None = session cookie (clears on browser close)
     )
 
 def clear_auth_cookies(response):
     """Clear both auth cookies."""
-    response.delete_cookie("sitrep-access", samesite="strict")
-    response.delete_cookie("sitrep-refresh", samesite="strict")
+    response.delete_cookie("sitrep-access", samesite="strict", secure=COOKIE_SECURE)
+    response.delete_cookie("sitrep-refresh", samesite="strict", secure=COOKIE_SECURE)
 
 app = FastAPI(title="SITREP")
 
@@ -1090,7 +1109,7 @@ async def refresh_token_endpoint(request: Request, response: Response):
         clear_auth_cookies(response)
         return JSONResponse({"error": "User not found"}, status_code=401)
     token = create_token(username, user["role"])
-    response.set_cookie("sitrep-access", token, httponly=True, samesite="strict", max_age=86400)
+    set_access_cookie(response, token)
     return {"username": username, "role": user["role"]}
 
 @app.post("/api/auth/logout")
@@ -1128,9 +1147,61 @@ class ResetPasswordBody(BaseModel):
     token: str
     password: str
 
+def _get_smtp_config() -> dict:
+    """Resolve effective SMTP config: settings.json wins, env vars are fallback.
+    Returns a dict with host/port/user/password/from/from_name/use_tls, or
+    {'host': ''} if nothing is configured."""
+    try:
+        s = load_settings(PANEL_DATA)
+    except Exception:
+        s = {}
+    host = (s.get("smtp_host") or SMTP_HOST or "").strip()
+    if not host:
+        return {"host": ""}
+    port = int(s.get("smtp_port") or SMTP_PORT or 587)
+    user = (s.get("smtp_user") or SMTP_USER or "").strip()
+    password = s.get("smtp_pass") or SMTP_PASS or ""
+    sender = (s.get("smtp_from") or SMTP_FROM or user or "").strip()
+    from_name = (s.get("smtp_from_name") or "SITREP Panel").strip()
+    use_tls = s.get("smtp_use_tls", True) if "smtp_use_tls" in s else True
+    return {
+        "host": host, "port": port, "user": user, "password": password,
+        "from": sender, "from_name": from_name, "use_tls": bool(use_tls),
+    }
+
+def _send_email(to_addr: str, subject: str, text_body: str, html_body: str = "") -> tuple[bool, str]:
+    """Send one email via the currently-configured SMTP. Returns (ok, error_message)."""
+    cfg = _get_smtp_config()
+    if not cfg["host"]:
+        return False, "SMTP not configured"
+    try:
+        if html_body:
+            msg = MIMEMultipart("alternative")
+            msg.attach(MIMEText(text_body, "plain"))
+            msg.attach(MIMEText(html_body, "html"))
+        else:
+            msg = MIMEText(text_body, "plain")
+        msg["Subject"] = subject
+        sender_display = f"{cfg['from_name']} <{cfg['from']}>" if cfg["from_name"] else cfg["from"]
+        msg["From"] = sender_display
+        msg["To"] = to_addr
+        with smtplib.SMTP(cfg["host"], cfg["port"], timeout=10) as srv:
+            srv.ehlo()
+            if cfg["use_tls"]:
+                srv.starttls()
+                srv.ehlo()
+            if cfg["user"]:
+                srv.login(cfg["user"], cfg["password"])
+            srv.sendmail(cfg["from"], to_addr, msg.as_string())
+        return True, ""
+    except Exception as e:
+        print(f"[SITREP] SMTP send failed: {e}")
+        return False, str(e)
+
 @app.post("/api/auth/forgot-password")
 async def forgot_password(body: ForgotPasswordBody):
-    if not SMTP_HOST:
+    cfg = _get_smtp_config()
+    if not cfg["host"]:
         return JSONResponse({"error": "Email is not configured on this server. Contact the server owner to reset your password."}, status_code=503)
     data = load_panel_users()
     user = next((u for u in data.get("users", []) if u.get("email", "").lower() == body.email.strip().lower()), None)
@@ -1142,31 +1213,17 @@ async def forgot_password(body: ForgotPasswordBody):
     tokens[token] = {"username": user["username"], "expires": time.time() + 3600}
     _save_reset_tokens(tokens)
     reset_url = f"{PANEL_URL}?reset_token={token}"
-    try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = "SITREP — Password Reset"
-        msg["From"] = SMTP_FROM
-        msg["To"] = body.email.strip()
-        text_body = f"Reset your SITREP panel password for account '{user['username']}':\n\n{reset_url}\n\nThis link expires in 1 hour. If you didn't request this, ignore this email."
-        html_body = f"""<div style="font-family:sans-serif;max-width:480px;margin:0 auto">
+    text_body = f"Reset your SITREP panel password for account '{user['username']}':\n\n{reset_url}\n\nThis link expires in 1 hour. If you didn't request this, ignore this email."
+    html_body = f"""<div style="font-family:sans-serif;max-width:480px;margin:0 auto">
 <h2 style="color:#111">SITREP — Password Reset</h2>
 <p>A password reset was requested for account <strong>{user['username']}</strong>.</p>
 <p><a href="{reset_url}" style="background:#22c55e;color:#000;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block">Reset Password</a></p>
 <p style="color:#666;font-size:13px">Or copy this link:<br><code>{reset_url}</code></p>
 <p style="color:#999;font-size:12px">This link expires in 1 hour. If you didn't request this, ignore this email.</p>
 </div>"""
-        msg.attach(MIMEText(text_body, "plain"))
-        msg.attach(MIMEText(html_body, "html"))
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as srv:
-            srv.ehlo()
-            srv.starttls()
-            srv.ehlo()
-            if SMTP_USER:
-                srv.login(SMTP_USER, SMTP_PASS)
-            srv.sendmail(SMTP_FROM, body.email.strip(), msg.as_string())
-    except Exception as e:
-        print(f"[SITREP] Failed to send reset email: {e}")
-        return JSONResponse({"error": "Failed to send email. Check SMTP configuration."}, status_code=500)
+    ok, err = _send_email(body.email.strip(), "SITREP — Password Reset", text_body, html_body)
+    if not ok:
+        return JSONResponse({"error": f"Failed to send email: {err}"}, status_code=500)
     return {"message": "If that email is registered, a reset link has been sent."}
 
 @app.post("/api/auth/reset-password")
@@ -1175,15 +1232,14 @@ async def reset_password_endpoint(body: ResetPasswordBody):
     entry = tokens.get(body.token)
     if not entry:
         return JSONResponse({"error": "Invalid or expired reset link."}, status_code=400)
-    if not body.password:
-        return JSONResponse({"error": "Password is required."}, status_code=400)
+    if not body.password or len(body.password) < 8:
+        return JSONResponse({"error": "Password must be at least 8 characters."}, status_code=400)
     data = load_panel_users()
     for u in data.get("users", []):
         if u["username"] == entry["username"]:
-            salt = secrets.token_hex(16)
-            u["password_hash"] = hashlib.pbkdf2_hmac("sha256", body.password.encode(), salt.encode(), 100000).hex()
-            u["salt"] = salt
-            u["tokens_valid_after"] = time.time()
+            u["password_hash"] = hash_password(body.password)
+            u.pop("salt", None)
+            u["tokens_valid_after"] = int(time.time())
             break
     save_panel_users(data)
     del tokens[body.token]
@@ -1318,6 +1374,35 @@ def _verify_oauth_state(state: str, max_age: int = 300) -> bool:
     except Exception:
         return False
 
+def _discord_redirect_uri(settings: dict) -> str:
+    """Source of truth for Discord OAuth redirect URI: PANEL_URL from env.
+
+    A stored discord_redirect_uri in settings.json is only honored when it
+    is an absolute URL AND does not point at localhost. Relative paths
+    (e.g. "/api/auth/discord/callback") and localhost values get rewritten
+    to `{PANEL_URL}/api/auth/discord/callback` so shipped installs work off
+    a single `.env` PANEL_URL value (install.sh prompts for it) instead of
+    requiring a second config step. Discord rejects relative redirect URIs.
+    """
+    stored = (settings.get("discord_redirect_uri") or "").strip().rstrip("/")
+    default_base = f"{PANEL_URL}/api/auth/discord/callback"
+    is_absolute = stored.startswith("http://") or stored.startswith("https://")
+    if is_absolute and "localhost" not in stored and "127.0.0.1" not in stored:
+        return stored
+    return default_base
+
+def _discord_frontend_base(settings: dict) -> str:
+    """Source of truth for post-OAuth redirect target: PANEL_URL from env.
+
+    Only absolute, non-localhost URLs from settings are honored; everything
+    else falls through to PANEL_URL.
+    """
+    stored = (settings.get("frontend_url") or "").strip().rstrip("/")
+    is_absolute = stored.startswith("http://") or stored.startswith("https://")
+    if is_absolute and "localhost" not in stored and "127.0.0.1" not in stored:
+        return stored
+    return PANEL_URL
+
 @app.get("/api/auth/discord")
 async def discord_auth_start(request: Request):
     """Redirect to Discord OAuth2 authorization page."""
@@ -1326,7 +1411,7 @@ async def discord_auth_start(request: Request):
     client_id = settings.get("discord_client_id", "")
     if not client_id:
         return JSONResponse({"error": "Discord OAuth not configured. Set discord_client_id in panel settings."}, status_code=400)
-    redirect_uri = settings.get("discord_redirect_uri", f"http://localhost:8000/api/auth/discord/callback")
+    redirect_uri = _discord_redirect_uri(settings)
     scope = "identify"
     state = _make_oauth_state()
     url = (
@@ -1344,14 +1429,14 @@ async def discord_auth_callback(request: Request, code: str = "", error: str = "
     """Handle Discord OAuth2 callback — sets HttpOnly cookies, no token in URL."""
     data_dir = PANEL_DATA
     settings = load_settings(data_dir)
-    frontend_url = settings.get("frontend_url") or "http://localhost:3000"
+    frontend_url = _discord_frontend_base(settings)
     if not _verify_oauth_state(state):
         return JSONResponse({"error": "Invalid or expired OAuth state — possible CSRF attempt."}, status_code=400)
     if error or not code:
         return RedirectResponse(f"{frontend_url}/?discord_error={urllib.parse.quote(error or 'no_code', safe='')}", status_code=302)
     client_id = settings.get("discord_client_id", "")
     client_secret = settings.get("discord_client_secret", "")
-    redirect_uri = settings.get("discord_redirect_uri", f"http://localhost:8000/api/auth/discord/callback")
+    redirect_uri = _discord_redirect_uri(settings)
     if not client_id or not client_secret:
         return JSONResponse({"error": "Discord OAuth not configured"}, status_code=400)
     try:
@@ -1399,8 +1484,8 @@ async def discord_auth_callback(request: Request, code: str = "", error: str = "
     ua = request.headers.get("user-agent", "")
     refresh_id = create_refresh_token(panel_user["username"], remember=True, user_agent=ua)
     resp = RedirectResponse(f"{frontend_url}/", status_code=302)
-    resp.set_cookie("sitrep-access", token, httponly=True, samesite="strict", max_age=86400)
-    resp.set_cookie("sitrep-refresh", refresh_id, httponly=True, samesite="strict", max_age=2592000)
+    set_access_cookie(resp, token)
+    resp.set_cookie("sitrep-refresh", refresh_id, httponly=True, samesite="strict", secure=COOKIE_SECURE, max_age=2592000)
     return resp
 
 @app.put("/api/users/{username}/link-discord")
@@ -2750,7 +2835,7 @@ async def list_configs(request: Request):
 # === ADMIN MANAGEMENT ===
 
 def _mat_admins_path(request: Request) -> Path:
-    return srv_profile_dir(request) / "profile" / "Misfits_Logging" / "configs" / "admins.json"
+    return srv_profile_dir(request) / "profile" / MAT_PROFILE_DIR_NAME / "configs" / "admins.json"
 
 def _load_mat_admins(path: Path) -> list:
     if path.exists():
@@ -3580,7 +3665,7 @@ async def detect_admin_mods(request: Request):
     MAT_ID = '68DC33B21E340EA1'
 
     sat_detected = sat_path.exists() or SAT_ID in loaded_ids
-    mat_dir = srv_profile_dir(request) / "profile" / "Misfits_Logging"
+    mat_dir = srv_profile_dir(request) / "profile" / MAT_PROFILE_DIR_NAME
     mat_detected  = mat_dir.exists()  or MAT_ID in loaded_ids
 
     mods = []
@@ -3610,7 +3695,7 @@ async def detect_admin_mods(request: Request):
 
 @app.get("/api/admin/mat/bans")
 async def mat_bans(request: Request):
-    ban_path = srv_profile_dir(request) / "profile" / "Misfits_Logging" / "configs" / "banlist.json"
+    ban_path = srv_profile_dir(request) / "profile" / MAT_PROFILE_DIR_NAME / "configs" / "banlist.json"
     if not ban_path.exists():
         return {"bans": [], "exists": False}
     try:
@@ -3629,7 +3714,7 @@ async def add_mat_ban(request: Request):
     reason = body.get("reason", "Banned").strip()
     if not guid: return {"error": "reforger_id required"}
 
-    ban_path = srv_profile_dir(request) / "profile" / "Misfits_Logging" / "configs" / "banlist.json"
+    ban_path = srv_profile_dir(request) / "profile" / MAT_PROFILE_DIR_NAME / "configs" / "banlist.json"
     ban_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -3653,7 +3738,7 @@ async def add_mat_ban(request: Request):
 async def remove_mat_ban(guid: str, request: Request):
     denied = require_permission(request, "bans.write")
     if denied: return denied
-    ban_path = srv_profile_dir(request) / "profile" / "Misfits_Logging" / "configs" / "banlist.json"
+    ban_path = srv_profile_dir(request) / "profile" / MAT_PROFILE_DIR_NAME / "configs" / "banlist.json"
     if not ban_path.exists(): return {"error": "banlist.json not found"}
     try:
         bans = json.loads(ban_path.read_text(errors='replace'))
@@ -4572,6 +4657,13 @@ SETTINGS_DEFAULTS = {
     "discord_redirect_uri": f"{PANEL_URL}/api/auth/discord/callback",
     "discord_allow_auto_register": False,
     "frontend_url": PANEL_URL,
+    "smtp_host": "",
+    "smtp_port": 587,
+    "smtp_user": "",
+    "smtp_pass": "",
+    "smtp_from": "",
+    "smtp_from_name": "SITREP Panel",
+    "smtp_use_tls": True,
 }
 
 def load_deployments(data_dir: Path = PANEL_DATA) -> list:
@@ -4660,12 +4752,16 @@ async def get_settings_endpoint(request: Request):
     if request.state.user.get("role") != "owner":
         settings["discord_client_secret"] = "***"
         settings["ipqs_api_key"] = "***"
+        settings["smtp_pass"] = "***" if settings.get("smtp_pass") else ""
     return settings
 
 @app.get("/api/settings/public")
 async def get_public_settings():
     s = load_settings(PANEL_DATA)
-    return {"discord_client_id": s.get("discord_client_id", "")}
+    return {
+        "discord_client_id": s.get("discord_client_id", ""),
+        "aigm_enabled": AIGM_BRIDGE_PATH.exists(),
+    }
 
 @app.put("/api/settings")
 async def put_settings_endpoint(request: Request):
@@ -4673,9 +4769,53 @@ async def put_settings_endpoint(request: Request):
     if denied: return denied
     data_dir = srv_data_dir(request)
     body = await request.json()
+    current = load_settings(data_dir)
     valid = {k: body[k] for k in SETTINGS_DEFAULTS if k in body}
-    save_settings(valid, data_dir)
+    # Preserve real secret values when the client submits the masked placeholder.
+    # GET returns "***" for secrets to non-owners; a blind PUT round-trip would
+    # otherwise wipe the real value.
+    for secret_key in ("discord_client_secret", "ipqs_api_key", "smtp_pass"):
+        if valid.get(secret_key) == "***":
+            valid[secret_key] = current.get(secret_key, "")
+    merged = {**current, **valid}
+    save_settings(merged, data_dir)
     return {"message": "Saved"}
+
+@app.post("/api/settings/smtp/test")
+async def test_smtp_endpoint(request: Request):
+    """Owner-only: send a test email to verify SMTP config is working."""
+    user = current_user(request)
+    if user.get("role") != "owner":
+        return JSONResponse({"error": "Owner only"}, status_code=403)
+    body = await request.json()
+    to_addr = (body.get("to") or "").strip()
+    if not to_addr or "@" not in to_addr:
+        return JSONResponse({"error": "Valid 'to' email address required"}, status_code=400)
+    cfg = _get_smtp_config()
+    if not cfg["host"]:
+        return JSONResponse({"error": "SMTP not configured. Fill in host + user + pass + from, then save before testing."}, status_code=400)
+    subject = "SITREP — SMTP Test"
+    text_body = (
+        f"This is a test email from your SITREP panel.\n\n"
+        f"Host: {cfg['host']}:{cfg['port']}\n"
+        f"From: {cfg['from']}\n"
+        f"TLS:  {cfg['use_tls']}\n\n"
+        f"If you can read this, password reset emails will work."
+    )
+    html_body = f"""<div style="font-family:sans-serif;max-width:480px;margin:0 auto">
+<h2 style="color:#111">SITREP — SMTP Test</h2>
+<p>This is a test email from your SITREP panel.</p>
+<ul style="color:#444;font-size:13px">
+<li>Host: <code>{cfg['host']}:{cfg['port']}</code></li>
+<li>From: <code>{cfg['from']}</code></li>
+<li>TLS: <code>{cfg['use_tls']}</code></li>
+</ul>
+<p style="color:#22c55e"><strong>✓ SMTP is working.</strong> Password reset emails will be delivered.</p>
+</div>"""
+    ok, err = _send_email(to_addr, subject, text_body, html_body)
+    if not ok:
+        return JSONResponse({"error": f"Send failed: {err}"}, status_code=500)
+    return {"message": f"Test email sent to {to_addr}"}
 
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket, token: str = ""):
@@ -4704,16 +4844,23 @@ async def aigm_chat(request: Request):
             return (await c.post(f"{BRIDGE}/api/chat", json=await request.json())).json()
     except Exception as e: return {"error": str(e), "reply": "Bridge not running."}
 
+AIGM_BRIDGE_PATH = Path(os.environ.get("AIGM_BRIDGE_PATH", str(Path.home() / "AIGameMaster" / "AIGameMaster" / "bridge.py")))
+
 @app.get("/api/aigm/status")
 async def aigm_status(request: Request):
     denied = require_permission(request, "server.control")
     if denied: return denied
+    if not AIGM_BRIDGE_PATH.exists():
+        return {"enabled": False, "status": "not-configured", "bridge_path": str(AIGM_BRIDGE_PATH)}
     try:
         async with httpx.AsyncClient(timeout=5) as c:
-            return (await c.get(f"{BRIDGE}/api/status")).json()
-    except Exception: return {"status": "offline"}
+            data = (await c.get(f"{BRIDGE}/api/status")).json()
+            if isinstance(data, dict):
+                data.setdefault("enabled", True)
+            return data
+    except Exception:
+        return {"enabled": True, "status": "offline"}
 
-AIGM_BRIDGE_PATH = Path(os.environ.get("AIGM_BRIDGE_PATH", str(Path.home() / "AIGameMaster" / "AIGameMaster" / "bridge.py")))
 _venv = os.environ.get("AIGM_VENV_PYTHON", "")
 AIGM_VENV_PYTHON = Path(_venv) if _venv else None
 
@@ -5286,7 +5433,7 @@ def _stats_period_filter(period: str):
 @app.get("/api/stats/overview")
 async def stats_overview(request: Request):
     data_dir = srv_data_dir(request)
-    mat_dir = srv_profile_dir(request) / "profile" / "Misfits_Logging"
+    mat_dir = srv_profile_dir(request) / "profile" / MAT_PROFILE_DIR_NAME
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, _sync_kill_events, mat_dir, data_dir)
     await loop.run_in_executor(None, _sync_player_sessions, mat_dir, data_dir)
@@ -5330,7 +5477,7 @@ async def stats_overview(request: Request):
 @app.get("/api/stats/feed")
 async def stats_feed(request: Request, limit: int = 50):
     data_dir = srv_data_dir(request)
-    mat_dir = srv_profile_dir(request) / "profile" / "Misfits_Logging"
+    mat_dir = srv_profile_dir(request) / "profile" / MAT_PROFILE_DIR_NAME
     await asyncio.get_running_loop().run_in_executor(None, _sync_kill_events, mat_dir, data_dir)
     with _stats_db_lock:
         conn = _get_stats_db_conn(data_dir)
@@ -5349,7 +5496,7 @@ async def stats_leaderboard(request: Request, period: str = "7d"):
     if period not in ('7d', '30d', 'all'):
         return JSONResponse({"error": "Invalid period"}, status_code=400)
     data_dir = srv_data_dir(request)
-    mat_dir = srv_profile_dir(request) / "profile" / "Misfits_Logging"
+    mat_dir = srv_profile_dir(request) / "profile" / MAT_PROFILE_DIR_NAME
     await asyncio.get_running_loop().run_in_executor(None, _sync_kill_events, mat_dir, data_dir)
     where, params = _stats_period_filter(period)
     with _stats_db_lock:
@@ -5382,7 +5529,7 @@ async def stats_weapons(request: Request, period: str = "7d"):
     if period not in ('7d', '30d', 'all'):
         return JSONResponse({"error": "Invalid period"}, status_code=400)
     data_dir = srv_data_dir(request)
-    mat_dir = srv_profile_dir(request) / "profile" / "Misfits_Logging"
+    mat_dir = srv_profile_dir(request) / "profile" / MAT_PROFILE_DIR_NAME
     await asyncio.get_running_loop().run_in_executor(None, _sync_kill_events, mat_dir, data_dir)
     where, params = _stats_period_filter(period)
     with _stats_db_lock:
@@ -5402,7 +5549,7 @@ async def stats_weapons(request: Request, period: str = "7d"):
 @app.get("/api/stats/player-history")
 async def stats_player_history(request: Request):
     data_dir = srv_data_dir(request)
-    mat_dir = srv_profile_dir(request) / "profile" / "Misfits_Logging"
+    mat_dir = srv_profile_dir(request) / "profile" / MAT_PROFILE_DIR_NAME
     await asyncio.get_running_loop().run_in_executor(None, _sync_player_sessions, mat_dir, data_dir)
     now = int(time.time())
     since = now - 7 * 86400
