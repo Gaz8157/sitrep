@@ -74,9 +74,10 @@ SITREP_INSTALL_DIR=/opt/myserver curl -sSL https://raw.githubusercontent.com/gaz
 sudo git clone https://github.com/gaz8157/sitrep.git /opt/panel
 cd /opt/panel
 
-# Python environment
-python3 -m venv backend/venv
-backend/venv/bin/pip install -r backend/requirements.txt
+# Python environment (uv manages it from backend/pyproject.toml + uv.lock)
+# Install uv once: https://docs.astral.sh/uv/getting-started/installation/
+curl -LsSf https://astral.sh/uv/install.sh | sh
+cd backend && uv sync --frozen && cd ..
 
 # Build frontend
 cd frontend && npm ci && npm run build && cd ..
@@ -95,7 +96,7 @@ After=network.target
 User=YOUR_USERNAME
 WorkingDirectory=/opt/panel/backend
 EnvironmentFile=-/opt/panel/.env
-ExecStart=/opt/panel/backend/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
+ExecStart=/opt/panel/backend/.venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=5
 
@@ -415,7 +416,7 @@ journalctl -u sitrep-api -n 50 --no-pager
 
 Reset the owner account password from the command line (you will be prompted for your system password):
 ```bash
-sudo -v && cd /opt/panel/backend && venv/bin/python3 -c "import json,hashlib,secrets;f='data/panel_users.json';d=json.load(open(f));u=next(x for x in d['users'] if x.get('role')=='owner');s=secrets.token_hex(16);h=hashlib.pbkdf2_hmac('sha256',b'admin123',s.encode(),100000).hex();u['password_hash']=s+':'+h;u.pop('salt',None);json.dump(d,open(f,'w'),indent=2);print('Reset',u['username'],'to admin123')"
+sudo -v && cd /opt/panel/backend && .venv/bin/python3 -c "import json,hashlib,secrets;f='data/panel_users.json';d=json.load(open(f));u=next(x for x in d['users'] if x.get('role')=='owner');s=secrets.token_hex(16);h=hashlib.pbkdf2_hmac('sha256',b'admin123',s.encode(),100000).hex();u['password_hash']=s+':'+h;u.pop('salt',None);json.dump(d,open(f,'w'),indent=2);print('Reset',u['username'],'to admin123')"
 ```
 Then log in with your owner username and `admin123`, and change your password in Settings.
 

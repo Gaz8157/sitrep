@@ -6,7 +6,6 @@ set -euo pipefail
 
 REPO="https://github.com/gaz8157/sitrep.git"
 INSTALL_DIR="${SITREP_INSTALL_DIR:-/opt/panel}"
-PYTHON="${PYTHON:-python3}"
 
 # ── Colours ──────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -67,7 +66,7 @@ fi
 # ── System dependencies ───────────────────────────────────────────────────────
 info "Installing system dependencies..."
 apt-get update -qq
-apt-get install -y -qq git curl python3 python3-venv python3-pip
+apt-get install -y -qq git curl python3
 
 # Node.js 20 via NodeSource (Ubuntu ships an older version)
 NODE_OK=false
@@ -220,14 +219,34 @@ else
     git clone "$REPO" "$INSTALL_DIR"
 fi
 
-# ── Python venv ───────────────────────────────────────────────────────────────
-info "Setting up Python environment..."
-if [[ ! -d "$INSTALL_DIR/backend/venv" ]]; then
-    $PYTHON -m venv "$INSTALL_DIR/backend/venv"
+# ── uv (Python package + project manager) ───────────────────────────────────
+UV_BIN=""
+if [[ -x /usr/local/bin/uv ]]; then
+    UV_BIN=/usr/local/bin/uv
+elif command -v uv &>/dev/null; then
+    UV_BIN="$(command -v uv)"
 fi
-"$INSTALL_DIR/backend/venv/bin/pip" install -q --upgrade pip
-"$INSTALL_DIR/backend/venv/bin/pip" install -q -r "$INSTALL_DIR/backend/requirements.txt"
-success "Python environment ready"
+if [[ -z "$UV_BIN" ]]; then
+    info "Installing uv..."
+    curl -LsSf https://astral.sh/uv/install.sh | \
+        env UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1 sh >/dev/null 2>&1
+    UV_BIN=/usr/local/bin/uv
+fi
+[[ -x "$UV_BIN" ]] || die "uv install failed — see https://docs.astral.sh/uv/"
+info "uv: $("$UV_BIN" --version)"
+
+# ── Python environment (uv) ──────────────────────────────────────────────────
+info "Setting up Python environment with uv..."
+# Migrate away from the legacy pip venv if a previous installer created it
+if [[ -d "$INSTALL_DIR/backend/venv" ]]; then
+    rm -rf "$INSTALL_DIR/backend/venv"
+    info "Removed legacy backend/venv/ (pre-uv install)"
+fi
+# Service user owns the backend tree so .venv/ belongs to them
+chown -R "$SERVICE_USER":"$SERVICE_USER" "$INSTALL_DIR/backend"
+# uv auto-fetches a matching Python (pyproject pins ==3.12.*) if the host has none
+(cd "$INSTALL_DIR/backend" && sudo -Hu "$SERVICE_USER" "$UV_BIN" sync --frozen)
+success "Python environment ready (.venv via uv)"
 
 # ── Build frontend ─────────────────────────────────────────────────────────
 info "Building frontend..."
@@ -239,7 +258,8 @@ success "Frontend built"
 
 # ── Environment config ────────────────────────────────────────────────────────
 if [[ ! -f "$INSTALL_DIR/.env" ]]; then
-    LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
+    LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+    [[ -z "$LOCAL_IP" ]] && LOCAL_IP="localhost"
     DEFAULT_URL="http://${LOCAL_IP}:8000"
     [[ "$IS_WSL" == "true" ]] && DEFAULT_URL="http://localhost:8000"
 
@@ -258,8 +278,18 @@ if [[ ! -f "$INSTALL_DIR/.env" ]]; then
         read -rp "PANEL_URL [$DEFAULT_URL]: " PANEL_URL
         PANEL_URL="${PANEL_URL:-$DEFAULT_URL}"
     fi
-    printf 'PANEL_URL=%s\nPANEL_INSTALL_DIR=%s\n' "$PANEL_URL" "$INSTALL_DIR" > "$INSTALL_DIR/.env"
-    success ".env created"
+    # Generate a random PlayerTracker mod auth key. Localhost mod POSTs bypass
+    # the check, but remote mods (e.g. Arma server on a different box than the
+    # panel) need this to match between .env and the mod config. Auto-gen here
+    # means fresh installs work for both cases without a manual rotation step.
+    TRACKER_KEY="$(openssl rand -base64 33 2>/dev/null | tr -d '\n+/=' | head -c 43)"
+    if [[ -z "$TRACKER_KEY" ]]; then
+        TRACKER_KEY="$(head -c 32 /dev/urandom | base64 | tr -d '\n+/=' | head -c 43)"
+    fi
+    printf 'PANEL_URL=%s\nPANEL_INSTALL_DIR=%s\nPLAYERTRACKER_API_KEY=%s\n' \
+        "$PANEL_URL" "$INSTALL_DIR" "$TRACKER_KEY" > "$INSTALL_DIR/.env"
+    chmod 600 "$INSTALL_DIR/.env"
+    success ".env created (PANEL_URL + auto-generated PLAYERTRACKER_API_KEY)"
 fi
 
 # ── Permissions ───────────────────────────────────────────────────────────────
@@ -285,7 +315,7 @@ After=network.target
 User=${SERVICE_USER}
 WorkingDirectory=${INSTALL_DIR}/backend
 EnvironmentFile=-${INSTALL_DIR}/.env
-ExecStart=${INSTALL_DIR}/backend/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
+ExecStart=${INSTALL_DIR}/backend/.venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=5
 
@@ -328,5 +358,5 @@ echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━
 echo ""
 echo -e "  Logs:    ${CYAN}journalctl -u sitrep-api -f${NC}"
 echo -e "  Restart: ${CYAN}sudo systemctl restart sitrep-api${NC}"
-echo -e "  Update:  ${CYAN}cd $INSTALL_DIR && git pull && cd frontend && npm ci && npm run build && cd .. && sudo systemctl restart sitrep-api${NC}"
+echo -e "  Update:  ${CYAN}cd $INSTALL_DIR && git pull && (cd backend && uv sync --frozen) && (cd frontend && npm ci && npm run build) && sudo systemctl restart sitrep-api${NC}"
 echo ""

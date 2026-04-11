@@ -64,12 +64,11 @@ sudo chown arma:arma /opt/panel
 cd /opt/panel
 # (copy your panel files here)
 
-# Create the Python virtual environment
+# Create the Python virtual environment with uv
+# (installs uv if you don't have it — see https://docs.astral.sh/uv/ for alternatives)
+curl -LsSf https://astral.sh/uv/install.sh | sh
 cd /opt/panel/backend
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-deactivate
+uv sync --frozen
 ```
 
 ---
@@ -175,7 +174,7 @@ After=network.target
 Type=simple
 User=arma
 WorkingDirectory=/opt/panel/backend
-ExecStart=/opt/panel/backend/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
+ExecStart=/opt/panel/backend/.venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
 Restart=on-failure
 RestartSec=5
 EnvironmentFile=/opt/panel/.env

@@ -32,6 +32,7 @@ export default function App(){
   const [profileModalTab, setProfileModalTab] = useState('profile')
   const{toasts,push:toast,dismiss:dismissToast}=useToast()
   const [selectedServer, setSelectedServer] = useState(null)
+  const [resetToken, setResetToken] = useState(()=>new URLSearchParams(window.location.search).get('reset_token'))
 
   const selectServer = useCallback(server => {
     setServerId(server ? server.id : null)
@@ -88,8 +89,7 @@ export default function App(){
   const logout=async()=>{try{await fetch(`${API}/auth/logout`,{method:'POST'})}catch{};setAuthUser(null);setUserProfile(null);setServerId(null);setSelectedServer(null);localStorage.removeItem('sitrep-server-id')}
   const CSS=`::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:${C.border};border-radius:4px}::selection{background:${C.accent}25;color:${C.textBright}}@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}@keyframes spin-cw{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}*{scrollbar-width:thin;scrollbar-color:${C.border} transparent;-webkit-tap-highlight-color:transparent;box-sizing:border-box}input,select,textarea{font-size:16px!important}button{touch-action:manipulation}img{max-width:100%}.overflow-auto,.overflow-y-auto{-webkit-overflow-scrolling:touch}.profile-tab-anim{animation:fadeIn 0.15s ease}.avatar-zone:hover .avatar-overlay{opacity:1!important}.pw-field:focus-within{border-color:${C.accent}80!important}.toast-item:hover .toast-x{opacity:1!important}`
   if(authLoading)return <Ctx.Provider value={{C,sz}}><div className="min-h-screen flex items-center justify-center" style={{background:C.bg}}><style>{CSS}</style><div className="animate-pulse font-black tracking-widest" style={{color:C.textDim,fontSize:20}}>SITREP</div></div></Ctx.Provider>
-  const resetToken=new URLSearchParams(window.location.search).get('reset_token')
-  if(resetToken)return <Ctx.Provider value={{C,sz}}><style>{CSS}</style><ResetPassword token={resetToken} onDone={()=>{window.history.replaceState({},'',window.location.pathname)}}/></Ctx.Provider>
+  if(resetToken)return <Ctx.Provider value={{C,sz}}><style>{CSS}</style><ResetPassword token={resetToken} onDone={()=>{window.history.replaceState({},'',window.location.pathname);setResetToken(null)}}/></Ctx.Provider>
   if(needsSetup)return <Ctx.Provider value={{C,sz}}><style>{CSS}</style><SetupWizard onComplete={u=>{setNeedsSetup(false);setAuthUser(u)}}/></Ctx.Provider>
   if (!authUser) return (
     <Ctx.Provider value={{C,sz}}>
@@ -145,7 +145,7 @@ function AppShell({C,sz,CSS,themeName,setThemeName,textSize,setTextSize,authUser
   const[trackerWiredUp,setTrackerWiredUp]=useState(false)
   const[aigmEnabled,setAigmEnabled]=useState(true)
   useEffect(()=>{
-    const check=()=>fetch('/api/tracker/status').then(r=>r.json()).then(d=>setTrackerWiredUp(!!d.wired_up)).catch(()=>{})
+    const check=()=>fetch(`${API}/tracker/status`,{headers:getHeaders()}).then(r=>r.json()).then(d=>setTrackerWiredUp(!!(d.wired_up||d.detected))).catch(()=>{})
     check();const iv=setInterval(check,8000);return()=>clearInterval(iv)
   },[])
   useEffect(()=>{

@@ -19,8 +19,8 @@ If `main` is currently checked out when a session starts, switch to `dev` before
 
 This repo lives at `/opt/panel/` and **is the running production panel**. The systemd service `sitrep-api.service` serves directly from this directory.
 
-- The backend Python venv at `/opt/panel/backend/venv/` is **load-bearing**. Do not delete, rename, or recreate it without first stopping the service and having a tested rebuild plan ready. A previous session wiped it and left the service running as a zombie process holding deleted file handles.
-- The systemd unit at `/etc/systemd/system/sitrep-api.service` hardcodes `/opt/panel/backend/venv/bin/uvicorn`. If you migrate to a different venv layout (uv, .venv, etc.), the unit file MUST be updated in the same change.
+- The backend Python venv at `/opt/panel/backend/.venv/` is **load-bearing** and is managed by `uv` from `backend/pyproject.toml` + `backend/uv.lock`. Rebuild with `cd /opt/panel/backend && uv sync --frozen`. Do not `rm -rf` it without stopping `sitrep-api` first — a previous session wiped the env and left the service running as a zombie process holding deleted file handles.
+- The systemd unit at `/etc/systemd/system/sitrep-api.service` hardcodes `/opt/panel/backend/.venv/bin/uvicorn`. If you migrate to a different venv layout the unit file MUST be updated in the same change.
 - `httpx` calls in `backend/main.py` rely on `certifi` being present in the venv. If certifi is missing, SSL verification fails with `unable to get local issuer certificate` even though the system CA store is fine.
 - When testing commands, use `/tmp/` — never `mkdir`/`touch` placeholder files inside `/opt/panel/`. If a plan template has example paths like `bin/`, `python`, `.env_new`, `data_new/`, **substitute the real paths before running** rather than creating literal stubs in the repo.
 
@@ -35,9 +35,11 @@ This repo lives at `/opt/panel/` and **is the running production panel**. The sy
 /opt/panel/
 ├── backend/
 │   ├── main.py              # FastAPI backend (~4800 lines, single file)
-│   ├── requirements.txt     # Python deps — includes PyJWT
+│   ├── pyproject.toml       # uv project — source of truth for Python deps
+│   ├── uv.lock              # uv lockfile (committed)
+│   ├── requirements.txt     # Legacy mirror of deps (kept for reference only)
 │   ├── data/                # Runtime data (gitignored) — users, tokens, DBs
-│   └── venv/                # Python virtualenv (gitignored)
+│   └── .venv/               # Python virtualenv (gitignored, managed by uv)
 ├── frontend/
 │   ├── src/App.jsx          # Entire frontend (~5100 lines, single file)
 │   ├── package.json

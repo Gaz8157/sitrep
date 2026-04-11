@@ -5578,17 +5578,28 @@ async def tracker_status(request: Request):
     settings = _tracker_load_settings()
     server_running = _tracker_server_running()
     mod_id = _tracker_panel_mod_id(request)
+    now = time.time()
     last_rx = 0.0
     snap_count = 0
     evt_count = 0
-    if mod_id:
-        with _TRACKER_STATE_LOCK:
+    with _TRACKER_STATE_LOCK:
+        if mod_id:
             last_rx = _TRACKER_LAST_RX.get(mod_id, 0.0)
             snap_count = len(_TRACKER_LATEST_SNAPSHOTS.get(mod_id, {}))
             evt_count = len(_TRACKER_RECENT_EVENTS.get(mod_id, ()))
-    mod_wired = bool(last_rx > 0 and (time.time() - last_rx) < 90)
+        # Global "any mod posting recently" check — used by the frontend to
+        # surface the Tracker tab even when the current server has no
+        # tracker_mod_id configured yet (otherwise the tab is unreachable
+        # because you configure the link *inside* the tab).
+        any_recent_rx = max(_TRACKER_LAST_RX.values(), default=0.0)
+    mod_wired = bool(last_rx > 0 and (now - last_rx) < 90)
+    # Gate detected on server_running so stopping the Arma server hides the
+    # tab on the next poll instead of waiting ≤90s for _TRACKER_LAST_RX to age
+    # out. Stale mod timestamps linger in-memory until the process restarts.
+    detected = bool(server_running and any_recent_rx > 0 and (now - any_recent_rx) < 90)
     return {
         "wired_up": server_running and mod_wired,
+        "detected": detected,
         "server_running": server_running,
         "configured": bool(mod_id),
         "mod_server_id": mod_id or None,

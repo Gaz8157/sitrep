@@ -258,7 +258,7 @@ export default function Permissions({toast,authUser}){const{C,sz}=useT()
           {isOwner&&<div className="space-y-3">
             <div>
               <label className="block font-bold uppercase tracking-wide mb-1.5" style={{color:C.textDim,fontSize:sz.label}}>Application ID (Client ID)</label>
-              <input value={discordSettings.discord_client_id} onChange={e=>{setDiscordSettings(p=>({...p,discord_client_id:e.target.value}));setDiscordDirty(true)}} placeholder="e.g. 1485073389164167341" className="w-full rounded-lg px-3 py-2.5 outline-none font-mono" style={{background:C.bgInput,border:`1px solid ${C.border}`,color:C.text,fontSize:sz.input}}/>
+              <input value={discordSettings.discord_client_id} onChange={e=>{setDiscordSettings(p=>({...p,discord_client_id:e.target.value}));setDiscordDirty(true)}} placeholder="e.g. 1234567890123456789" className="w-full rounded-lg px-3 py-2.5 outline-none font-mono" style={{background:C.bgInput,border:`1px solid ${C.border}`,color:C.text,fontSize:sz.input}}/>
             </div>
             <div>
               <label className="block font-bold uppercase tracking-wide mb-1.5" style={{color:C.textDim,fontSize:sz.label}}>Client Secret</label>
@@ -273,7 +273,7 @@ export default function Permissions({toast,authUser}){const{C,sz}=useT()
             </div>
             <div>
               <label className="block font-bold uppercase tracking-wide mb-1.5" style={{color:C.textDim,fontSize:sz.label}}>Panel URL <span style={{color:C.textMuted,fontWeight:400}}>(where Discord redirects users after login)</span></label>
-              <input value={discordSettings.frontend_url} onChange={e=>{setDiscordSettings(p=>({...p,frontend_url:e.target.value}));setDiscordDirty(true)}} className="w-full rounded-lg px-3 py-2.5 outline-none font-mono" style={{background:C.bgInput,border:`1px solid ${C.border}`,color:C.text,fontSize:sz.input}} placeholder="e.g. http://192.168.1.16:8000"/>
+              <input value={discordSettings.frontend_url} onChange={e=>{setDiscordSettings(p=>({...p,frontend_url:e.target.value}));setDiscordDirty(true)}} className="w-full rounded-lg px-3 py-2.5 outline-none font-mono" style={{background:C.bgInput,border:`1px solid ${C.border}`,color:C.text,fontSize:sz.input}} placeholder="e.g. http://192.168.1.100:8000"/>
             </div>
             <Toggle label="Auto-register new Discord users as Viewer (no manual link needed)" value={discordSettings.discord_allow_auto_register} onChange={()=>{setDiscordSettings(p=>({...p,discord_allow_auto_register:!p.discord_allow_auto_register}));setDiscordDirty(true)}}/>
             <div className="flex gap-2">

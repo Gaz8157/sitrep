@@ -89,7 +89,7 @@ Frontend — `ReceiverTab` now has three blocks:
 
 The `.env` was also updated with the actual mod key:
 ```
-PLAYERTRACKER_API_KEY=uqZh_b90HS5ruTA1cNnt_OuoHI9ARnj1O20pg7G21So
+PLAYERTRACKER_API_KEY=<redacted — install.sh now auto-generates this on first install>
 ```
 (This matters for any future remote-non-localhost callers; the localhost
 trust path means it's not strictly required for the mod itself.)
