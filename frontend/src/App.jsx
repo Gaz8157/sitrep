@@ -19,8 +19,9 @@ import Network from './tabs/Network.jsx'
 import AiGm from './tabs/AiGm.jsx'
 import Scheduler from './tabs/Scheduler.jsx'
 import Tracker from './tabs/Tracker.jsx'
+import System from './tabs/System.jsx'
 
-const ROUTES={dashboard:Dashboard,console:Console,startup:Startup,admin:Admin,config:Config,mods:Mods,files:Files,webhooks:Webhooks,network:Network,aigm:AiGm,scheduler:Scheduler,tracker:Tracker}
+const ROUTES={dashboard:Dashboard,console:Console,startup:Startup,admin:Admin,config:Config,mods:Mods,files:Files,webhooks:Webhooks,network:Network,aigm:AiGm,scheduler:Scheduler,tracker:Tracker,system:System}
 
 export default function App(){
   const[themeName,setThemeName]=useState(()=>localStorage.getItem('sitrep-theme')||'dark')

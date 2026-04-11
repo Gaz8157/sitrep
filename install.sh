@@ -300,26 +300,13 @@ fi
 mkdir -p "$INSTALL_DIR/backend/data"
 chown -R "$SERVICE_USER":"$SERVICE_USER" "$INSTALL_DIR"
 
-# ── Sudoers (passwordless ops the backend performs) ─────────────────────────
-# systemctl  — start/stop/daemon-reload for sitrep-api + per-server arma units
-# tee/rm     — write & delete /etc/systemd/system/arma-reforger-*.service
-# ufw        — open/close per-server firewall ports
-# Rewritten every install so existing boxes pick up new rules on upgrade.
-SUDOERS_FILE="/etc/sudoers.d/sitrep"
-SUDOERS_TMP="$(mktemp)"
-cat > "$SUDOERS_TMP" <<SUDOEOF
-${SERVICE_USER} ALL=(ALL) NOPASSWD: /bin/systemctl, /usr/bin/systemctl
-${SERVICE_USER} ALL=(ALL) NOPASSWD: /usr/bin/tee /etc/systemd/system/arma-reforger-*.service
-${SERVICE_USER} ALL=(ALL) NOPASSWD: /usr/bin/rm -f /etc/systemd/system/arma-reforger-*.service
-${SERVICE_USER} ALL=(ALL) NOPASSWD: /usr/sbin/ufw
-SUDOEOF
-if visudo -cf "$SUDOERS_TMP" >/dev/null 2>&1; then
-    install -m 440 -o root -g root "$SUDOERS_TMP" "$SUDOERS_FILE"
-    rm -f "$SUDOERS_TMP"
-    success "Sudoers rule installed"
+# ── Sudoers (delegated to scripts/bootstrap-sudoers.sh) ─────────────────────
+# Keeping the rule in one place means scripts/update.sh can refresh it on
+# existing boxes without re-running the full installer.
+if [[ -x "$INSTALL_DIR/scripts/bootstrap-sudoers.sh" ]]; then
+    bash "$INSTALL_DIR/scripts/bootstrap-sudoers.sh" "$SERVICE_USER"
 else
-    rm -f "$SUDOERS_TMP"
-    warn "Sudoers rule failed visudo validation — aborting"
+    warn "scripts/bootstrap-sudoers.sh missing — aborting"
     exit 1
 fi
 
@@ -377,5 +364,5 @@ echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━
 echo ""
 echo -e "  Logs:    ${CYAN}journalctl -u sitrep-api -f${NC}"
 echo -e "  Restart: ${CYAN}sudo systemctl restart sitrep-api${NC}"
-echo -e "  Update:  ${CYAN}cd $INSTALL_DIR && git pull && (cd backend && uv sync --frozen) && (cd frontend && npm ci && npm run build) && sudo systemctl restart sitrep-api${NC}"
+echo -e "  Update:  ${CYAN}sudo $INSTALL_DIR/scripts/update.sh${NC}"
 echo ""

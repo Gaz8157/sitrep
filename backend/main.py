@@ -3,7 +3,7 @@ SITREP — Arma Reforger Server Panel Backend (Beta)
 Direct SteamCMD + systemd. No LinuxGSM.
 """
 
-import asyncio, re, json, os, time, subprocess, shutil, socket, hashlib, hmac, secrets, math, zlib, struct, sqlite3, ipaddress, zipfile, threading, urllib.parse, getpass
+import asyncio, re, json, os, sys, time, subprocess, shutil, socket, hashlib, hmac, secrets, math, zlib, struct, sqlite3, ipaddress, zipfile, threading, urllib.parse, getpass
 from threading import Lock
 try:
     import miniupnpc
@@ -770,6 +770,173 @@ async def security_headers_middleware(request: Request, call_next):
 PANEL_DATA.mkdir(parents=True, exist_ok=True)
 SERVERS_DIR.mkdir(parents=True, exist_ok=True)
 _init_server_registry()
+
+# ── System diagnostics ───────────────────────────────────────────────────────
+# Self-check the panel runs at startup (logged to journal) and re-runs on
+# demand via GET /api/system/diagnostics. Every check that fails points at
+# `sudo /opt/panel/scripts/update.sh` as the single repair path.
+
+def _sudo_probe(cmd_args: list) -> tuple:
+    """Non-interactively check if the current user is permitted to run
+    `sudo <cmd_args>` without a password. Uses `sudo -n -l` which only
+    *lists* permissions — it never executes the probed command."""
+    try:
+        r = subprocess.run(
+            ["sudo", "-n", "-l"] + cmd_args,
+            capture_output=True, timeout=3
+        )
+        return (r.returncode == 0, r.stderr.decode(errors="ignore").strip())
+    except Exception as e:
+        return (False, str(e))
+
+def _disk_free_mb(path: str) -> int:
+    try:
+        return shutil.disk_usage(path).free // (1024 * 1024)
+    except Exception:
+        return -1
+
+_DIAG_FIX_INSTALL = "Run: sudo /opt/panel/scripts/update.sh"
+
+def _run_diagnostics() -> dict:
+    """Check every precondition the backend relies on and return a structured
+    report. Called at startup (logged) and from GET /api/system/diagnostics."""
+    checks: list = []
+
+    def add(cid, label, status, detail="", fix=""):
+        checks.append({"id": cid, "label": label, "status": status,
+                       "detail": detail, "fix": fix})
+
+    # 1. Sudoers file presence (panel user can't read mode 440 file, only stat it)
+    sudoers_path = "/etc/sudoers.d/sitrep"
+    if os.path.exists(sudoers_path):
+        add("sudoers_file", "Sudoers rule file present", "ok", detail=sudoers_path)
+    else:
+        add("sudoers_file", "Sudoers rule file missing", "fail",
+            detail=f"{sudoers_path} does not exist",
+            fix=_DIAG_FIX_INSTALL)
+
+    # 2-5. Each sudo command the backend actually calls
+    sudo_checks = [
+        ("sudo_systemctl", "sudo systemctl (service control)",
+         ["/bin/systemctl", "--version"]),
+        ("sudo_tee", "sudo tee (write systemd units)",
+         ["/usr/bin/tee", "/etc/systemd/system/arma-reforger-probe.service"]),
+        ("sudo_rm", "sudo rm (delete systemd units)",
+         ["/usr/bin/rm", "-f", "/etc/systemd/system/arma-reforger-probe.service"]),
+        ("sudo_ufw", "sudo ufw (firewall rules)",
+         ["/usr/sbin/ufw", "status"]),
+    ]
+    for cid, label, cmd in sudo_checks:
+        ok, err = _sudo_probe(cmd)
+        if ok:
+            add(cid, label, "ok")
+        elif cid == "sudo_ufw" and not os.path.exists("/usr/sbin/ufw"):
+            add(cid, "ufw not installed", "warn",
+                detail="Firewall port management unavailable. Install with: sudo apt install ufw")
+        else:
+            add(cid, label, "fail",
+                detail=(err or "sudo denied — passwordless rule not applied"),
+                fix=_DIAG_FIX_INSTALL)
+
+    # 6. Arma Reforger binary
+    arma_bin = ARMA_DIR / "ArmaReforgerServer"
+    if arma_bin.exists():
+        add("arma_binary", "Arma Reforger binary present", "ok", detail=str(arma_bin))
+    else:
+        add("arma_binary", "Arma Reforger binary missing", "fail",
+            detail=f"{arma_bin} not found",
+            fix="Re-run the installer to fetch via SteamCMD")
+
+    # 7. Systemd unit dir writable via sudo (implied by sudo_tee, but check
+    #    the directory itself exists — catches exotic containers)
+    if Path("/etc/systemd/system").is_dir():
+        add("systemd_dir", "/etc/systemd/system present", "ok")
+    else:
+        add("systemd_dir", "/etc/systemd/system missing", "fail",
+            detail="Running in a container without systemd?")
+
+    # 8. Disk space on /opt (servers, logs, mods all land here)
+    free_mb = _disk_free_mb("/opt")
+    if free_mb < 0:
+        add("disk_space", "Disk space check failed", "warn",
+            detail="Unable to read /opt free space")
+    elif free_mb < 1024:
+        add("disk_space", f"Disk critically low — {free_mb} MB free on /opt", "fail",
+            detail="Server logs and mods can fill /opt fast. Free space or move mods.")
+    elif free_mb < 5120:
+        add("disk_space", f"Disk low — {free_mb} MB free on /opt", "warn",
+            detail="Consider freeing space before installing more mods")
+    else:
+        add("disk_space", f"Disk OK — {free_mb // 1024} GB free on /opt", "ok")
+
+    # 9. Panel data dir writable
+    try:
+        test_path = PANEL_DATA / f".diag_write_{os.getpid()}"
+        test_path.write_text("x")
+        test_path.unlink()
+        add("panel_data_writable", "Panel data dir writable", "ok", detail=str(PANEL_DATA))
+    except Exception as e:
+        add("panel_data_writable", "Panel data dir NOT writable", "fail",
+            detail=f"{PANEL_DATA}: {e}",
+            fix=f"sudo chown -R {getpass.getuser()}:{getpass.getuser()} {PANEL_DATA}")
+
+    # 10. uv lockfile freshness (best-effort)
+    lockfile = Path("/opt/panel/backend/uv.lock")
+    pyproject = Path("/opt/panel/backend/pyproject.toml")
+    if lockfile.exists() and pyproject.exists():
+        if lockfile.stat().st_mtime < pyproject.stat().st_mtime - 5:
+            add("uv_lock", "uv.lock is older than pyproject.toml", "warn",
+                detail="Python deps may be stale",
+                fix=_DIAG_FIX_INSTALL)
+        else:
+            add("uv_lock", "Python lockfile up to date", "ok")
+
+    fails = sum(1 for c in checks if c["status"] == "fail")
+    warns = sum(1 for c in checks if c["status"] == "warn")
+    overall = "fail" if fails else ("warn" if warns else "ok")
+
+    return {
+        "overall": overall,
+        "fails": fails,
+        "warns": warns,
+        "checks": checks,
+        "generated_at": int(time.time()),
+    }
+
+def _provision_sudo_preflight() -> Optional[str]:
+    """Fast preflight used inside provision_server before any mkdir/write.
+    Returns None if OK, or a short error string with the fix hint."""
+    for cmd in (
+        ["/usr/bin/tee", "/etc/systemd/system/arma-reforger-probe.service"],
+        ["/bin/systemctl", "--version"],
+    ):
+        ok, _ = _sudo_probe(cmd)
+        if not ok:
+            return ("Sudo preflight failed: the panel can't write systemd units without a password. "
+                    "Run `sudo /opt/panel/scripts/update.sh` on the server host to refresh /etc/sudoers.d/sitrep.")
+    return None
+
+def _log_startup_diagnostics() -> None:
+    try:
+        result = _run_diagnostics()
+    except Exception as e:
+        print(f"[SITREP] diagnostics failed to run: {e}", file=sys.stderr, flush=True)
+        return
+    if result["overall"] == "ok":
+        print(f"[SITREP] diagnostics OK — {len(result['checks'])} checks passed", flush=True)
+        return
+    sev = "WARN" if result["overall"] == "warn" else "FAIL"
+    print(f"[SITREP] diagnostics {sev}: {result['fails']} fail, {result['warns']} warn, "
+          f"{len(result['checks'])} total", file=sys.stderr, flush=True)
+    for c in result["checks"]:
+        if c["status"] == "ok":
+            continue
+        print(f"[SITREP] {c['status'].upper():4s} {c['id']}: {c['label']} — {c['detail']}",
+              file=sys.stderr, flush=True)
+        if c.get("fix"):
+            print(f"[SITREP]      fix: {c['fix']}", file=sys.stderr, flush=True)
+
+_log_startup_diagnostics()
 
 _net_prev = {"ts": 0, "sent": 0, "recv": 0}
 _net_rate = {"up_mbps": 0.0, "down_mbps": 0.0}
@@ -1744,6 +1911,12 @@ async def create_server(request: Request):
     save_servers(data)
     return {"server": new_server}
 
+@app.get("/api/system/diagnostics")
+async def system_diagnostics(request: Request):
+    if current_user(request).get("role") != "owner":
+        return JSONResponse({"error": "Owner only"}, status_code=403)
+    return _run_diagnostics()
+
 @app.post("/api/servers/{server_id}/provision")
 async def provision_server(server_id: int, request: Request):
     if current_user(request).get("role") != "owner":
@@ -1752,6 +1925,15 @@ async def provision_server(server_id: int, request: Request):
     s = get_server_by_id(server_id)
     if not s:
         return JSONResponse({"error": "Server not found"}, status_code=404)
+
+    # Fast preflight: fail now with a helpful message instead of creating
+    # dirs and rolling them back on the first sudo call.
+    preflight_err = _provision_sudo_preflight()
+    if preflight_err:
+        data = load_servers()
+        data["servers"] = [x for x in data["servers"] if x.get("id") != server_id]
+        save_servers(data)
+        return JSONResponse({"error": preflight_err}, status_code=500)
 
     data_dir = Path(s["data_dir"])
     profile_dir = Path(s["profile_dir"])
@@ -4211,7 +4393,7 @@ async def update_own_profile(request: Request):
     p = profiles[username]
     if "display_name" in body:
         p["display_name"] = str(body["display_name"])[:32]
-    VALID_TABS = {"dashboard", "console", "admin", "mods", "config", "startup", "stats", "aigm"}
+    VALID_TABS = {"dashboard", "console", "admin", "mods", "config", "startup", "stats", "aigm", "system"}
     if "default_tab" in body and body["default_tab"] in VALID_TABS:
         p["default_tab"] = body["default_tab"]
     if "preferences" in body and isinstance(body["preferences"], dict):
