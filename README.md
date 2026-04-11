@@ -9,26 +9,61 @@ Built with FastAPI + React.
 
 ## Features
 
-- **Dashboard** — live server status, CPU/GPU/RAM/disk/network charts, console tail
-- **Console** — 1000-line buffer, level/source filters, regex search, RCON broadcast, export
+### Server management
+- **Dashboard** — live server status, CPU/GPU/RAM/disk/network charts, console tail, floatable panels
+- **Server Stats** — kill feed, K/D leaderboard, weapon usage breakdown, 7-day player history chart (embedded in Dashboard)
+- **Console** — 1,000-line buffer, level/source filters, regex search, RCON broadcast, export
+- **Startup** — command-line flag management, broken mod detection, startup diagnostics
+
+### Player & admin tools
 - **Players** — live player list, full session history, K/D stats, faction tracking
-- **Admin** — in-game admin management, player bans, IP bans, troll alerts
+- **Admin** — in-game admin management, player bans, IP bans, RCON kick/message, IP reputation checks, troll alerts, audit log
+- **Webhooks** — Discord webhook integration with per-event filtering
+
+### Configuration
 - **Config** — visual config editor + raw JSON for all server config files
-- **Mods** — mod list management, add/remove, workshop search
+- **Mods** — mod list management, add/remove, Workshop search
 - **Files** — file browser with viewer and editor
-- **Startup** — command-line flag management, startup diagnostics (broken mod detection)
-- **Scheduler** — crontab manager with presets (auto-restart, SteamCMD updates, log cleanup)
+
+### Automation & monitoring
+- **Scheduler** — crontab manager with quick-add presets (auto-restart, SteamCMD update, log cleanup)
 - **Network** — live bandwidth charts, port status, UPnP, RCON connectivity
-- **Webhooks** — Discord webhook integration
-- **AI Game Master** — optional AI GM tab (requires separate bridge setup, mod ID `68E44E4AE677D389`)
-- **Player Tracker** — live map with player positions, 8/10-digit grid refs, AAR replay, ATAK feed (requires PlayerTracker mod ID `691608368426C1F2`)
-- **System** — owner-only self-diagnostics tab with 10 health checks and traffic-light status (sudo access, disk, Arma binary, sudoers, etc.)
+
+### Optional modules
+- **AI Game Master** — LLM-driven game master; spawns enemies, adjusts difficulty, reacts to players in real time (requires mod ID `68E44E4AE677D389` + bridge setup)
+- **Player Tracker** — live player positions, 8/10-digit MGRS grids, AAR replay, Mercury Enable / ATAK feed (requires mod ID `691608368426C1F2`)
+- **System** — owner-only self-diagnostics with 10 health checks and traffic-light status
+
+### Platform
 - **Multi-server** — manage multiple Arma Reforger instances from one panel
 - **Auth** — user accounts with roles: owner / head_admin / admin / moderator / viewer / demo
 - **2FA** — authenticator app (TOTP) with backup codes
+- **Discord login** — optional OAuth2 sign-in with linked Discord accounts
 - **Setup wizard** — guided first-run setup with account creation and optional 2FA
 - **Themes** — Midnight, Daylight, Tactical, Ember
 - **Mobile** — fully responsive, works on phone and tablet
+
+---
+
+## Role Permissions
+
+Each role sees a fixed set of tabs. The **Tracker** tab additionally requires the PlayerTracker mod to be actively reporting.
+
+| Tab | owner | head_admin | admin | moderator | viewer | demo |
+|-----|:-----:|:----------:|:-----:|:---------:|:------:|:----:|
+| Dashboard | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Console | ✓ | ✓ | ✓ | ✓ | | ✓ |
+| Startup | ✓ | ✓ | ✓ | ✓ | | |
+| Admin | ✓ | ✓ | ✓ | ✓ | | ✓ |
+| Config | ✓ | ✓ | ✓ | | | |
+| Mods | ✓ | ✓ | ✓ | | | ✓ |
+| Files | ✓ | ✓ | ✓ | | | |
+| Webhooks | ✓ | ✓ | ✓ | | | |
+| Network | ✓ | ✓ | ✓ | ✓ | | |
+| AI GM | ✓ | ✓ | ✓ | | | |
+| Scheduler | ✓ | ✓ | ✓ | | | |
+| Tracker | ✓ | ✓ | ✓ | | | |
+| System | ✓ | | | | | |
 
 ---
 
@@ -61,6 +96,7 @@ The installer will:
 4. Clone the panel to `/opt/panel` and build the frontend
 5. Create a `sitrep-api` systemd service on port 8000 and start it
 6. Open firewall ports (8000, 2001, 17777, 19999) if UFW is active
+7. Write `/etc/sudoers.d/sitrep` so the panel can control systemd without a password prompt
 
 **Open your browser to `http://YOUR_SERVER_IP:8000` and complete the setup wizard to create your owner account.**
 
@@ -76,8 +112,7 @@ SITREP_INSTALL_DIR=/opt/myserver curl -sSL https://raw.githubusercontent.com/gaz
 sudo git clone https://github.com/gaz8157/sitrep.git /opt/panel
 cd /opt/panel
 
-# Python environment (uv manages it from backend/pyproject.toml + uv.lock)
-# Install uv once: https://docs.astral.sh/uv/getting-started/installation/
+# Python environment
 curl -LsSf https://astral.sh/uv/install.sh | sh
 cd backend && uv sync --frozen && cd ..
 
@@ -108,6 +143,9 @@ EOF
 
 sudo systemctl daemon-reload
 sudo systemctl enable --now sitrep-api
+
+# Sudoers rule (required for start/stop/restart controls)
+sudo /opt/panel/scripts/bootstrap-sudoers.sh
 ```
 
 ---
@@ -134,17 +172,22 @@ nano /opt/panel/.env
 sudo systemctl restart sitrep-api
 ```
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `PANEL_URL` | Yes | Full URL users access the panel at. Used for CORS and Discord OAuth. |
-| `SECRET_KEY` | No | Override the auto-generated JWT secret (useful for multi-instance setups). |
-| `SMTP_HOST` | No | SMTP server hostname — enables email password reset. |
-| `SMTP_PORT` | No | SMTP port (default: 587). |
-| `SMTP_USER` | No | SMTP login username. |
-| `SMTP_PASS` | No | SMTP login password (use an app password for Gmail). |
-| `SMTP_FROM` | No | From address for reset emails. Defaults to `SMTP_USER`. |
-| `AIGM_DIR` | No | Path to your AI Game Master directory. Defaults to `~/AIGameMaster`. |
-| `AIGM_BRIDGE_PATH` | No | Path to `bridge.py` for the AI GM feature. |
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `PANEL_URL` | Yes | `http://localhost:8000` | Full URL users access the panel at. Used for CORS and Discord OAuth. |
+| `SECRET_KEY` | No | auto-generated | Override the JWT secret. Useful for multi-instance setups. |
+| `PLAYERTRACKER_API_KEY` | No | auto-generated | Auth key for the PlayerTracker mod. Rotating in the panel UI updates this live — no restart needed. |
+| `SMTP_HOST` | No | — | SMTP hostname. Can also be set in the panel UI under Permissions → Email. |
+| `SMTP_PORT` | No | `587` | SMTP port. |
+| `SMTP_USER` | No | — | SMTP username. |
+| `SMTP_PASS` | No | — | SMTP password (use an app password for Gmail). |
+| `SMTP_FROM` | No | `SMTP_USER` | From address for password reset emails. |
+| `AIGM_DIR` | No | `~/AIGameMaster` | Path to your AI Game Master directory. |
+| `AIGM_BRIDGE_PATH` | No | `~/AIGameMaster/AIGameMaster/bridge.py` | Path to the AI GM `bridge.py`. |
+| `AIGM_BRIDGE_URL` | No | `http://127.0.0.1:5555` | URL the panel uses to talk to the running bridge. |
+| `OLLAMA_URL` | No | `http://127.0.0.1:11434` | Ollama inference endpoint for the AI GM model status/list APIs. |
+
+> **SMTP tip:** You can configure SMTP entirely from the panel UI (**Permissions → Email / SMTP**) without touching `.env`. The panel UI setting takes precedence when both are set.
 
 ---
 
@@ -236,7 +279,7 @@ The AI GM tab lets an LLM autonomously manage the Game Master role — spawning 
 
 ### Step 1 — Add the Command&Control mod to your Arma server
 
-Search the Arma Reforger Workshop for **Command&Control** (mod ID `68E44E4AE677D389`) and add it to your server's mod list via the Mods tab in the panel.
+Search the Arma Reforger Workshop for **Command&Control** (mod ID `68E44E4AE677D389`) and add it to your server's mod list via the **Mods** tab in the panel.
 
 This mod provides the in-game component that connects the running scenario to the AI bridge.
 
@@ -514,23 +557,35 @@ curl -sSL https://raw.githubusercontent.com/gaz8157/sitrep/main/install.sh | sud
 journalctl -u sitrep-api -n 50 --no-pager
 ```
 
+**System tab shows red / amber checks**
+```bash
+sudo /opt/panel/scripts/update.sh
+```
+This refreshes sudoers, syncs deps, rebuilds, and restarts. All 10 checks should turn green.
+
 **"Backend unreachable" in browser**
 - Check the service is running: `sudo systemctl status sitrep-api`
-- Check the firewall: `sudo ufw allow 8000/tcp` (the installer does this automatically if UFW is active)
+- Check the firewall: `sudo ufw allow 8000/tcp`
 - If accessing from outside your network, make sure port 8000 is forwarded on your router — see [Opening Ports](#opening-ports)
 
 **Can't start/stop the Arma server**
 - Verify the service exists: `sudo systemctl status arma-reforger`
 - Check the sudoers rule: `sudo cat /etc/sudoers.d/sitrep`
+- Re-run if missing: `sudo /opt/panel/scripts/bootstrap-sudoers.sh`
 
 **Arma server won't download during install**
-- Run SteamCMD manually:
-  ```bash
-  sudo -u YOUR_USERNAME /usr/games/steamcmd +force_install_dir /opt/arma-server +login anonymous +app_update 1874900 validate +quit
-  ```
+```bash
+sudo -u YOUR_USERNAME /usr/games/steamcmd +force_install_dir /opt/arma-server +login anonymous +app_update 1874900 validate +quit
+```
 
 **Startup diagnostics shows broken mods**
-- Go to **Startup → Diagnostics** tab — broken mods are listed with a remove button
+Go to **Startup → Diagnostics** — broken mods are listed with a remove button.
+
+**Tracker tab doesn't appear**
+- Confirm `PLAYERTRACKER_API_KEY` is set in `/opt/panel/.env`
+- Confirm the mod's API key attribute in Workbench matches
+- Check: `curl http://localhost:8000/api/tracker/status` — `wired_up` should be `true`
+- The tab disappears 90 seconds after the last mod POST; it reappears on the next one
 
 **GPU stats show 0 or are missing**
 - Verify `nvidia-smi` works: `nvidia-smi -q`
@@ -538,13 +593,13 @@ journalctl -u sitrep-api -n 50 --no-pager
 
 **Locked out — forgot password / can't log in**
 
-Reset the owner account password from the command line (you will be prompted for your system password):
+Reset the owner account password from the command line:
 ```bash
 sudo -v && cd /opt/panel/backend && .venv/bin/python3 -c "import json,hashlib,secrets;f='data/panel_users.json';d=json.load(open(f));u=next(x for x in d['users'] if x.get('role')=='owner');s=secrets.token_hex(16);h=hashlib.pbkdf2_hmac('sha256',b'admin123',s.encode(),100000).hex();u['password_hash']=s+':'+h;u.pop('salt',None);json.dump(d,open(f,'w'),indent=2);print('Reset',u['username'],'to admin123')"
 ```
 Then log in with your owner username and `admin123`, and change your password in Settings.
 
-To avoid lockouts in future, add a recovery email in **Settings → Security** — the login page has a "Forgot password?" link that sends a reset email (requires SMTP configured in `.env`).
+To avoid future lockouts, add a recovery email in **Settings → Security** — the login page has a "Forgot password?" link that sends a reset email (requires SMTP configured in `.env` or the panel UI).
 
 ---
 
