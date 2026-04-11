@@ -461,7 +461,10 @@ def _tracker_save_settings(s: dict):
     tmp.replace(TRACKER_SETTINGS_FILE)
 
 def _tracker_check_key(request: Request) -> bool:
-    key = request.headers.get("X-Api-Key", "")
+    client_host = request.client.host if request.client else ""
+    if client_host in ("127.0.0.1", "::1", "localhost"):
+        return True
+    key = request.headers.get("X-Api-Key", "") or request.query_params.get("key", "")
     return bool(PLAYERTRACKER_API_KEY and key == PLAYERTRACKER_API_KEY)
 
 def _tracker_db_init():
@@ -5301,7 +5304,7 @@ async def stats_player_history(request: Request):
 async def tracker_status():
     settings = _tracker_load_settings()
     return {
-        "wired_up": bool(_TRACKER_LAST_RX > 0),
+        "wired_up": bool(_TRACKER_LAST_RX > 0 and (time.time() - _TRACKER_LAST_RX) < 90),
         "last_rx": _TRACKER_LAST_RX or None,
         "snapshot_count": len(_TRACKER_LATEST_SNAPSHOTS),
         "event_count": len(_TRACKER_RECENT_EVENTS),
