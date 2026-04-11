@@ -1771,7 +1771,21 @@ async def provision_server(server_id: int, request: Request):
             shutil.copy2(src_config, config_path)
             try:
                 cfg = json.loads(config_path.read_text())
-                if "game" in cfg: cfg["game"]["port"] = s["port"]
+                # Rewrite source ports to the new server's port. The Arma Reforger
+                # schema rejects `game.port` ("#/game/port is not allowed") — the
+                # game port only belongs at the top level as bindPort/publicPort.
+                # a2s (Steam query) and rcon keep their offset from bindPort so a
+                # cloned server doesn't hard-collide with its source on those ports.
+                old_bind = int(cfg.get("bindPort") or s["port"])
+                new_bind = int(s["port"])
+                cfg["bindPort"] = new_bind
+                cfg["publicPort"] = new_bind
+                if isinstance(cfg.get("game"), dict):
+                    cfg["game"].pop("port", None)
+                if isinstance(cfg.get("a2s"), dict) and "port" in cfg["a2s"]:
+                    cfg["a2s"]["port"] = new_bind + (int(cfg["a2s"]["port"]) - old_bind)
+                if isinstance(cfg.get("rcon"), dict) and "port" in cfg["rcon"]:
+                    cfg["rcon"]["port"] = new_bind + (int(cfg["rcon"]["port"]) - old_bind)
                 config_path.write_text(json.dumps(cfg, indent=2))
             except Exception as e:
                 return JSONResponse({"error": f"Failed to update cloned config: {e}"}, status_code=500)
