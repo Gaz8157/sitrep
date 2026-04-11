@@ -186,6 +186,7 @@ sudo systemctl restart sitrep-api
 | `AIGM_BRIDGE_PATH` | No | `~/AIGameMaster/AIGameMaster/bridge.py` | Path to the AI GM `bridge.py`. |
 | `AIGM_BRIDGE_URL` | No | `http://127.0.0.1:5555` | URL the panel uses to talk to the running bridge. |
 | `OLLAMA_URL` | No | `http://127.0.0.1:11434` | Ollama inference endpoint for the AI GM model status/list APIs. |
+| `LOG_LEVEL` | No | `INFO` | Backend log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
 
 > **SMTP tip:** You can configure SMTP entirely from the panel UI (**Permissions → Email / SMTP**) without touching `.env`. The panel UI setting takes precedence when both are set.
 
