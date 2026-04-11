@@ -50,11 +50,9 @@ LOG_DIR = PROFILE_DIR / "logs"
 PANEL_DATA = Path("/opt/panel/backend/data")
 SERVERS_FILE = PANEL_DATA / "servers.json"
 SERVERS_DIR  = Path("/opt/panel/servers")
-WEBHOOKS_FILE = PANEL_DATA / "webhooks.json"
 USER_PROFILES_FILE = PANEL_DATA / "user_profiles.json"
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 IMAGE_EXTENSIONS = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
-ADMINS_DB = PANEL_DATA / "admins.json"
 RESET_TOKENS_FILE = PANEL_DATA / "reset_tokens.json"
 STEAMCMD = "/usr/games/steamcmd"
 SERVICE_NAME = "arma-reforger"
@@ -691,7 +689,7 @@ async def auth_middleware(request: Request, call_next):
     # Revocation check — reject tokens issued before tokens_valid_after
     iat = payload.get("iat", 0)
     try:
-        _users_data = load_panel_users(Path(get_default_server()["data_dir"]))
+        _users_data = load_panel_users(PANEL_DATA)
         _u = next((u for u in _users_data["users"] if u["username"] == sub), None)
         if _u and iat < _u.get("tokens_valid_after", 0):
             return JSONResponse({"error": "Session expired — please log in again"}, status_code=401)
@@ -1035,7 +1033,7 @@ async def login(request: Request, response: Response):
     if not username or not password:
         return JSONResponse({"error": "Username and password required"}, status_code=400)
     DUMMY_HASH = "pbkdf2:sha256:260000$dummy$0000000000000000000000000000000000000000000000000000000000000000"
-    data_dir = Path(get_default_server()["data_dir"])
+    data_dir = PANEL_DATA
     data = load_panel_users(data_dir)
     user = next((u for u in data["users"] if u["username"].lower() == username.lower()), None)
     if not user:
@@ -1065,7 +1063,7 @@ async def login(request: Request, response: Response):
 async def auth_me(request: Request):
     u = current_user(request)
     try:
-        data = load_panel_users(Path(get_default_server()["data_dir"]))
+        data = load_panel_users(PANEL_DATA)
         full = next((x for x in data["users"] if x["username"] == u["username"]), {})
         extras = {}
         if full.get("email"):
@@ -1085,7 +1083,7 @@ async def refresh_token_endpoint(request: Request, response: Response):
     if not username:
         clear_auth_cookies(response)
         return JSONResponse({"error": "Session expired — please log in again"}, status_code=401)
-    data_dir = Path(get_default_server()["data_dir"])
+    data_dir = PANEL_DATA
     data = load_panel_users(data_dir)
     user = next((u for u in data["users"] if u["username"] == username), None)
     if not user:
@@ -1251,7 +1249,7 @@ async def totp_enable(body: TotpEnableBody, request: Request):
     # Generate 8 backup codes
     raw_codes = [secrets.token_hex(4).upper() + "-" + secrets.token_hex(4).upper() for _ in range(8)]
     hashed_codes = [hashlib.sha256(c.replace("-","").encode()).hexdigest() for c in raw_codes]
-    data_dir = Path(get_default_server()["data_dir"])
+    data_dir = PANEL_DATA
     data = load_panel_users(data_dir)
     for u in data["users"]:
         if u["username"] == user_info["username"]:
@@ -1266,7 +1264,7 @@ async def totp_enable(body: TotpEnableBody, request: Request):
 @app.post("/api/auth/2fa/disable")
 async def totp_disable(body: TotpDisableBody, request: Request):
     user_info = current_user(request)
-    data_dir = Path(get_default_server()["data_dir"])
+    data_dir = PANEL_DATA
     data = load_panel_users(data_dir)
     u = next((x for x in data["users"] if x["username"] == user_info["username"]), None)
     if not u:
@@ -1286,7 +1284,7 @@ async def totp_verify(body: Totp2FABody, response: Response):
     entry = _pending_2fa.get(body.pending_token)
     if not entry:
         return JSONResponse({"error": "Session expired — please log in again"}, status_code=401)
-    data_dir = Path(get_default_server()["data_dir"])
+    data_dir = PANEL_DATA
     data = load_panel_users(data_dir)
     u = next((x for x in data["users"] if x["username"] == entry["username"]), None)
     if not u or not _verify_totp(u, body.code):
@@ -1323,7 +1321,7 @@ def _verify_oauth_state(state: str, max_age: int = 300) -> bool:
 @app.get("/api/auth/discord")
 async def discord_auth_start(request: Request):
     """Redirect to Discord OAuth2 authorization page."""
-    data_dir = Path(get_default_server()["data_dir"])
+    data_dir = PANEL_DATA
     settings = load_settings(data_dir)
     client_id = settings.get("discord_client_id", "")
     if not client_id:
@@ -1344,7 +1342,7 @@ async def discord_auth_start(request: Request):
 @app.get("/api/auth/discord/callback")
 async def discord_auth_callback(request: Request, code: str = "", error: str = "", state: str = ""):
     """Handle Discord OAuth2 callback — sets HttpOnly cookies, no token in URL."""
-    data_dir = Path(get_default_server()["data_dir"])
+    data_dir = PANEL_DATA
     settings = load_settings(data_dir)
     frontend_url = settings.get("frontend_url") or "http://localhost:3000"
     if not _verify_oauth_state(state):
@@ -1783,13 +1781,65 @@ async def delete_server(server_id: int, request: Request):
     server_to_delete = next((x for x in data["servers"] if x["id"] == server_id), None)
     if not server_to_delete:
         return JSONResponse({"error": "Server not found"}, status_code=404)
+
+    warnings: list[str] = []
+
+    # 1. Stop + disable + remove the systemd unit so the server can't be restarted.
+    service_name = server_to_delete.get("service_name") or f"arma-reforger-{server_id}"
+    unit_path = Path(f"/etc/systemd/system/{service_name}.service")
+    for cmd in (
+        ["sudo", "systemctl", "stop", service_name],
+        ["sudo", "systemctl", "disable", service_name],
+    ):
+        r = subprocess.run(cmd, capture_output=True)
+        if r.returncode != 0:
+            warnings.append(f"{' '.join(cmd[1:])}: {r.stderr.decode().strip() or 'failed'}")
+    if unit_path.exists():
+        rm = subprocess.run(["sudo", "rm", "-f", str(unit_path)], capture_output=True)
+        if rm.returncode != 0:
+            warnings.append(f"rm unit: {rm.stderr.decode().strip() or 'failed'}")
+    subprocess.run(["sudo", "systemctl", "daemon-reload"], capture_output=True)
+
+    # 2. Close firewall ports.
     try:
         _manage_ports(server_to_delete, "close")
     except Exception as e:
-        print(f"[WARN] Port cleanup failed for server {server_id}: {e}")
+        warnings.append(f"port cleanup: {e}")
+
+    # 3. Remove on-disk per-server tree. Everything created by provision_server lives
+    # under /opt/panel/servers/{id}/ — blow that away. install_dir is the shared Arma
+    # Reforger binary directory; never touch it.
+    srv_root = SERVERS_DIR / str(server_id)
+    if srv_root.exists():
+        try:
+            shutil.rmtree(srv_root)
+        except Exception as e:
+            warnings.append(f"rmtree {srv_root}: {e}")
+    else:
+        # Fall back to individual path removal for servers whose paths were hand-edited
+        # off the default SERVERS_DIR layout.
+        for key in ("data_dir", "profile_dir"):
+            p = server_to_delete.get(key)
+            if p and p != str(ARMA_DIR) and Path(p).exists():
+                try:
+                    shutil.rmtree(p)
+                except Exception as e:
+                    warnings.append(f"rmtree {p}: {e}")
+        cfg = server_to_delete.get("config_path")
+        if cfg and Path(cfg).exists():
+            try:
+                Path(cfg).unlink()
+            except Exception as e:
+                warnings.append(f"unlink {cfg}: {e}")
+
+    # 4. Drop from the registry.
     data["servers"] = [x for x in data["servers"] if x["id"] != server_id]
     save_servers(data)
-    return {"message": f"Server #{server_id} removed from registry (files not deleted)"}
+
+    msg = f"Server #{server_id} deleted"
+    if warnings:
+        msg += f" (with warnings: {'; '.join(warnings)})"
+    return {"message": msg, "warnings": warnings}
 
 @app.get("/api/health")
 async def health():
@@ -4513,7 +4563,6 @@ async def remove_crontab(request: Request):
 
 # === DEPLOYMENTS (saved mod list snapshots) ===
 
-DEPLOYMENTS_FILE = PANEL_DATA / "deployments.json"
 SETTINGS_FILE    = PANEL_DATA / "settings.json"
 SETTINGS_DEFAULTS = {
     "uploadCapMbps": 120.0,
@@ -4525,16 +4574,19 @@ SETTINGS_DEFAULTS = {
     "frontend_url": PANEL_URL,
 }
 
-def load_deployments() -> list:
-    if DEPLOYMENTS_FILE.exists():
-        try: return json.loads(DEPLOYMENTS_FILE.read_text())
+def load_deployments(data_dir: Path = PANEL_DATA) -> list:
+    path = data_dir / "deployments.json"
+    if path.exists():
+        try: return json.loads(path.read_text())
         except: pass
     return []
 
-def save_deployments(deps: list):
-    tmp = DEPLOYMENTS_FILE.with_suffix('.tmp')
+def save_deployments(deps: list, data_dir: Path = PANEL_DATA):
+    path = data_dir / "deployments.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix('.tmp')
     tmp.write_text(json.dumps(deps, indent=2))
-    tmp.replace(DEPLOYMENTS_FILE)
+    tmp.replace(path)
 
 def load_settings(data_dir: Path = PANEL_DATA) -> dict:
     path = data_dir / "settings.json"
@@ -4553,7 +4605,7 @@ def save_settings(data: dict, data_dir: Path = PANEL_DATA):
 async def get_deployments(request: Request):
     denied = require_role(request, "viewer")
     if denied: return denied
-    return load_deployments()
+    return load_deployments(srv_data_dir(request))
 
 @app.post("/api/deployments")
 async def create_deployment(request: Request):
@@ -4572,19 +4624,21 @@ async def create_deployment(request: Request):
         "modCount": len(mods),
         "created": datetime.now().isoformat(),
     }
-    deps = load_deployments()
+    data_dir = srv_data_dir(request)
+    deps = load_deployments(data_dir)
     deps.append(dep)
-    save_deployments(deps)
+    save_deployments(deps, data_dir)
     return dep
 
 @app.delete("/api/deployments/{dep_id}")
 async def delete_deployment(dep_id: str, request: Request):
     denied = require_permission(request, "config.write")
     if denied: return denied
-    deps = load_deployments()
+    data_dir = srv_data_dir(request)
+    deps = load_deployments(data_dir)
     new_deps = [d for d in deps if d["id"] != dep_id]
     if len(new_deps) == len(deps): return {"error": "Not found"}
-    save_deployments(new_deps)
+    save_deployments(new_deps, data_dir)
     return {"message": "Deleted"}
 
 @app.post("/api/deployments/{dep_id}/apply")
@@ -4592,7 +4646,7 @@ async def apply_deployment(dep_id: str, request: Request):
     denied = require_permission(request, "config.write")
     if denied: return denied
     config_path = srv_config_path(request)
-    deps = load_deployments()
+    deps = load_deployments(srv_data_dir(request))
     dep = next((d for d in deps if d["id"] == dep_id), None)
     if not dep: return {"error": "Not found"}
     config = read_config(config_path)
@@ -4610,7 +4664,7 @@ async def get_settings_endpoint(request: Request):
 
 @app.get("/api/settings/public")
 async def get_public_settings():
-    s = load_settings(Path(get_default_server()["data_dir"]))
+    s = load_settings(PANEL_DATA)
     return {"discord_client_id": s.get("discord_client_id", "")}
 
 @app.put("/api/settings")
