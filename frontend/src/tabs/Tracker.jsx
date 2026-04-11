@@ -234,7 +234,8 @@ function ReceiverTab({ keyInfo, onRotate, status, C, sz }) {
       <div style={{ background: C.bgInput, borderRadius: 8, padding: '12px 14px', border: `1px solid ${C.border}` }}>
         <div style={{ color: C.textMuted, fontSize: sz.stat - 1, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Status</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px' }}>
-          <StatLine label="Wired Up" value={status?.wired_up ? 'Yes' : 'No'} ok={status?.wired_up} C={C} sz={sz} />
+          <StatLine label="Server Running" value={status?.server_running ? 'Yes' : 'No'} ok={status?.server_running} C={C} sz={sz} />
+          <StatLine label="Mod Connected" value={status?.wired_up ? 'Yes' : 'No'} ok={status?.wired_up} C={C} sz={sz} />
           <StatLine label="Last RX" value={fmtTs(status?.last_rx)} C={C} sz={sz} />
           <StatLine label="Snapshots" value={status?.snapshot_count ?? '—'} C={C} sz={sz} />
           <StatLine label="Events" value={status?.event_count ?? '—'} C={C} sz={sz} />
@@ -576,6 +577,7 @@ export default function Tracker({ role }) {
   const snapshots = data?.snapshots || []
   const events = [...(data?.events || [])].reverse()
   const wiredUp = data?.wired_up
+  const serverRunning = data?.server_running
 
   const factions = [...new Set(snapshots.map(p => p.faction).filter(Boolean))]
   const statuses = [...new Set(snapshots.map(p => p.status).filter(Boolean))]
@@ -588,13 +590,19 @@ export default function Tracker({ role }) {
   const aliveCount = snapshots.filter(p => p.status === 'alive').length
   const deadCount = snapshots.filter(p => p.status === 'dead').length
 
+  const headerBadge = (() => {
+    if (!serverRunning) return { color: '#f87171', bg: '#7f1d1d22', border: '#f8717140', dot: '#f87171', label: 'Server Offline', pulse: false }
+    if (!wiredUp)       return { color: '#fb923c', bg: '#7c2d1222', border: '#fb923c40', dot: '#fb923c', label: 'Server Running — Mod Not Connected', pulse: false }
+    return                    { color: '#4ade80', bg: '#14532d22', border: '#4ade8040', dot: '#4ade80', label: 'Live', pulse: true }
+  })()
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 10 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <h2 style={{ color: C.textBright, fontSize: sz.base + 4, fontWeight: 900, margin: 0 }}>Tracker</h2>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 8px', borderRadius: 5, background: wiredUp ? '#14532d22' : '#7f1d1d22', border: `1px solid ${wiredUp ? '#4ade8040' : '#f8717140'}` }}>
-          <div style={{ width: 6, height: 6, borderRadius: '50%', background: wiredUp ? '#4ade80' : '#f87171', animation: wiredUp ? 'pulse 2s infinite' : 'none' }} />
-          <span style={{ color: wiredUp ? '#4ade80' : '#f87171', fontSize: sz.stat, fontWeight: 700 }}>{wiredUp ? 'Mod Connected' : 'Not Connected'}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 8px', borderRadius: 5, background: headerBadge.bg, border: `1px solid ${headerBadge.border}` }}>
+          <div style={{ width: 6, height: 6, borderRadius: '50%', background: headerBadge.dot, animation: headerBadge.pulse ? 'pulse 2s infinite' : 'none' }} />
+          <span style={{ color: headerBadge.color, fontSize: sz.stat, fontWeight: 700 }}>{headerBadge.label}</span>
         </div>
         {wiredUp && <>
           <span style={{ color: C.textMuted, fontSize: sz.stat }}>

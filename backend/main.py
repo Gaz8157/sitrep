@@ -5303,8 +5303,11 @@ async def stats_player_history(request: Request):
 @app.get("/api/tracker/status")
 async def tracker_status():
     settings = _tracker_load_settings()
+    server_running = _tracker_server_running()
+    mod_wired = bool(_TRACKER_LAST_RX > 0 and (time.time() - _TRACKER_LAST_RX) < 90)
     return {
-        "wired_up": bool(_TRACKER_LAST_RX > 0 and (time.time() - _TRACKER_LAST_RX) < 90),
+        "wired_up": server_running and mod_wired,
+        "server_running": server_running,
         "last_rx": _TRACKER_LAST_RX or None,
         "snapshot_count": len(_TRACKER_LATEST_SNAPSHOTS),
         "event_count": len(_TRACKER_RECENT_EVENTS),
@@ -5388,14 +5391,26 @@ def _tracker_db_write_event(payload: dict):
         finally:
             conn.close()
 
+def _tracker_server_running() -> bool:
+    try:
+        for s in load_servers().get("servers", []):
+            if is_server_running(s.get("service_name", SERVICE_NAME)):
+                return True
+    except Exception:
+        pass
+    return False
+
 @app.get("/api/tracker/debug")
 async def tracker_debug(request: Request):
     key_ok = _tracker_check_key(request)
     role_ok = ROLE_ORDER.get(current_user(request).get("role",""), 0) >= ROLE_ORDER.get("admin", 0)
     if not key_ok and not role_ok:
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    server_running = _tracker_server_running()
+    mod_wired = bool(_TRACKER_LAST_RX > 0 and (time.time() - _TRACKER_LAST_RX) < 90)
     return {
-        "wired_up": bool(_TRACKER_LAST_RX > 0),
+        "wired_up": server_running and mod_wired,
+        "server_running": server_running,
         "last_rx": _TRACKER_LAST_RX or None,
         "snapshots": list(_TRACKER_LATEST_SNAPSHOTS.values()),
         "events": list(_TRACKER_RECENT_EVENTS),
