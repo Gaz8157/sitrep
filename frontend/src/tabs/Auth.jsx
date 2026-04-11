@@ -64,7 +64,7 @@ export function Login({onLogin}){const{C,sz}=useT();const[u,setU]=useState('');c
           <div className="font-black mb-1" style={{color:C.textBright,fontSize:sz.base+2}}>Two-Factor Authentication</div>
           <div className="mb-4" style={{color:C.textDim,fontSize:sz.base}}>Enter the 6-digit code from your authenticator app, or a backup code.</div>
           <form onSubmit={submitTotp}>
-            <input value={totpCode} onChange={e=>setTotpCode(e.target.value)} placeholder="000000" maxLength={8} autoFocus autoComplete="one-time-code" inputMode="numeric" className="w-full rounded-lg px-3 py-3 outline-none font-mono text-center mb-3" style={{background:C.bgInput,border:`1px solid ${C.border}`,color:C.text,fontSize:sz.base+4,letterSpacing:'0.3em'}}/>
+            <input value={totpCode} onChange={e=>setTotpCode(e.target.value)} placeholder="000000" maxLength={17} autoFocus autoComplete="one-time-code" inputMode="text" className="w-full rounded-lg px-3 py-3 outline-none font-mono text-center mb-3" style={{background:C.bgInput,border:`1px solid ${C.border}`,color:C.text,fontSize:sz.base+4,letterSpacing:'0.3em'}}/>
             {totpErr&&<div className="mb-3 px-3 py-2.5 rounded-lg font-bold" style={{background:C.redBg,color:C.red,border:`1px solid ${C.redBorder}`,fontSize:sz.stat}}>{totpErr}</div>}
             <button type="submit" disabled={totpLoading} className="w-full py-3 rounded-xl font-black uppercase tracking-widest cursor-pointer disabled:opacity-50 transition-all mb-3" style={{background:C.accent,color:'#000',fontSize:sz.base}}>{totpLoading?'Verifying...':'Verify'}</button>
           </form>
