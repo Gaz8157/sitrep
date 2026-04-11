@@ -4698,6 +4698,59 @@ async def aigm_model_config_post(request: Request):
     except Exception as e:
         return {"error": str(e)}
 
+@app.post("/api/aigm/opord/save")
+async def aigm_opord_save(request: Request):
+    denied = require_permission(request, "server.control")
+    if denied: return denied
+    try:
+        opord = await request.json()
+        async with httpx.AsyncClient(timeout=10) as c:
+            r = await c.post(f"{BRIDGE}/api/aigm/opord", json={"opord": opord})
+            return r.json()
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/api/aigm/opord/parse")
+async def aigm_opord_parse(request: Request):
+    denied = require_permission(request, "server.control")
+    if denied: return denied
+    try:
+        opord = await request.json()
+        async with httpx.AsyncClient(timeout=120) as c:
+            await c.post(f"{BRIDGE}/api/aigm/opord", json={"opord": opord})
+            r = await c.post(f"{BRIDGE}/api/aigm/opord/parse", json={})
+            return r.json()
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/api/aigm/opord/load")
+async def aigm_opord_load(request: Request):
+    denied = require_permission(request, "server.control")
+    if denied: return denied
+    return {"status": "loaded"}
+
+@app.post("/api/aigm/operation/advance")
+async def aigm_operation_advance(request: Request):
+    denied = require_permission(request, "server.control")
+    if denied: return denied
+    try:
+        async with httpx.AsyncClient(timeout=5) as c:
+            r = await c.post(f"{BRIDGE}/api/aigm/operation/advance", json={})
+            return r.json()
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/api/aigm/operation/abort")
+async def aigm_operation_abort(request: Request):
+    denied = require_permission(request, "server.control")
+    if denied: return denied
+    try:
+        async with httpx.AsyncClient(timeout=5) as c:
+            r = await c.post(f"{BRIDGE}/api/aigm/operation/abort", json={})
+            return r.json()
+    except Exception as e:
+        return {"error": str(e)}
+
 # === WORKSHOP PROXY ===
 
 _ws_build_id: str = ""
