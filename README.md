@@ -291,73 +291,44 @@ The **AI Game Master** tab in the panel will show **ONLINE** once the bridge is 
 
 ## Player Tracker (Optional)
 
-The Tracker tab shows live player positions on the in-game map, exports 8/10-digit MGRS grid references, powers After-Action Review (AAR) replay, and can feed an ATAK server for real-time blue-force tracking. It requires a server-side Arma Reforger mod and a lightweight relay process.
+The Tracker tab shows live player positions, 8/10-digit MGRS grid references, After-Action Review (AAR) replay data, and a feed compatible with ATAK and Mercury Enable for real-time blue-force tracking. It requires one server-side Arma Reforger mod — no relay process needed. The mod posts directly to the panel's ingest endpoints.
+
+The tab is hidden by default. It only appears for owner / head_admin / admin accounts, and only while the mod is actively reporting (disappears within 90 seconds of the mod going silent or the server restarting).
 
 ### Prerequisites
 
 | Requirement | Notes |
 |-------------|-------|
 | PlayerTracker mod | Workshop mod ID `691608368426C1F2` — add to your server |
-| Python 3.10+ | Used by the relay (installed automatically by the SITREP installer) |
 
 ### Step 1 — Add the PlayerTracker mod to your Arma server
 
 Search the Arma Reforger Workshop for **PlayerTracker** (mod ID `691608368426C1F2`) and add it to your server's mod list via the **Mods** tab in the panel, then restart the server.
 
-### Step 2 — Install the relay
+### Step 2 — Generate an API key
 
-The relay ships alongside the mod at `/home/mark/PlayerTracker/Relay` (or wherever you cloned the repo). Install its dependencies:
+In the panel go to **Tracker → Settings → Receiver** and click **Rotate key**. Copy the key that appears.
 
+Alternatively, add it manually to `/opt/panel/.env` and restart:
+```
+PLAYERTRACKER_API_KEY=your_random_key_here
+```
+
+### Step 3 — Set the key in Workbench
+
+Open your scenario in Arma Reforger Workbench, select the game mode entity, and find the **PlayerTrackerComponent** attributes. Set:
+- **Webhook base URL** — `http://YOUR_SERVER_IP:8000/` (trailing slash required)
+- **API key** — the key you generated in Step 2
+
+The mod will begin POSTing player snapshots every 10 seconds (configurable) and instant events on kills, joins, and spawns.
+
+### Step 4 — Verify
+
+The **Tracker** tab will appear in the sidebar within 8 seconds of the first successful POST. Check the status endpoint if it doesn't show up:
 ```bash
-cd ~/PlayerTracker/Relay
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+curl http://localhost:8000/api/tracker/status
 ```
-
-### Step 3 — Configure the relay
-
-```bash
-nano ~/PlayerTracker/Relay/config.json
-```
-
-Set the webhook URL to your panel's ingest endpoint:
-```json
-{
-  "webhook_url": "http://127.0.0.1:8000/api/tracker/ingest",
-  "poll_interval_ms": 500
-}
-```
-
-### Step 4 — Start the relay
-
-```bash
-cd ~/PlayerTracker/Relay && source venv/bin/activate && python3 relay.py
-```
-
-To run it as a background service:
-```bash
-sudo tee /etc/systemd/system/sitrep-tracker.service > /dev/null << 'EOF'
-[Unit]
-Description=SITREP Player Tracker Relay
-After=network.target sitrep-api.service
-
-[Service]
-User=YOUR_USERNAME
-WorkingDirectory=/home/YOUR_USERNAME/PlayerTracker/Relay
-ExecStart=/home/YOUR_USERNAME/PlayerTracker/Relay/venv/bin/python3 relay.py
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable --now sitrep-tracker
-```
-
-The **Tracker** tab will populate with live player data once the relay is running and the mod is active in-game.
+`wired_up: true` confirms the panel is receiving data.
 
 ---
 
