@@ -300,12 +300,27 @@ fi
 mkdir -p "$INSTALL_DIR/backend/data"
 chown -R "$SERVICE_USER":"$SERVICE_USER" "$INSTALL_DIR"
 
-# ── Sudoers (server start/stop without password prompt) ──────────────────────
+# ── Sudoers (passwordless ops the backend performs) ─────────────────────────
+# systemctl  — start/stop/daemon-reload for sitrep-api + per-server arma units
+# tee/rm     — write & delete /etc/systemd/system/arma-reforger-*.service
+# ufw        — open/close per-server firewall ports
+# Rewritten every install so existing boxes pick up new rules on upgrade.
 SUDOERS_FILE="/etc/sudoers.d/sitrep"
-if [[ ! -f "$SUDOERS_FILE" ]]; then
-    printf '%s ALL=(ALL) NOPASSWD: /bin/systemctl\n' "$SERVICE_USER" > "$SUDOERS_FILE"
-    chmod 440 "$SUDOERS_FILE"
-    success "Sudoers rule added"
+SUDOERS_TMP="$(mktemp)"
+cat > "$SUDOERS_TMP" <<SUDOEOF
+${SERVICE_USER} ALL=(ALL) NOPASSWD: /bin/systemctl, /usr/bin/systemctl
+${SERVICE_USER} ALL=(ALL) NOPASSWD: /usr/bin/tee /etc/systemd/system/arma-reforger-*.service
+${SERVICE_USER} ALL=(ALL) NOPASSWD: /usr/bin/rm -f /etc/systemd/system/arma-reforger-*.service
+${SERVICE_USER} ALL=(ALL) NOPASSWD: /usr/sbin/ufw
+SUDOEOF
+if visudo -cf "$SUDOERS_TMP" >/dev/null 2>&1; then
+    install -m 440 -o root -g root "$SUDOERS_TMP" "$SUDOERS_FILE"
+    rm -f "$SUDOERS_TMP"
+    success "Sudoers rule installed"
+else
+    rm -f "$SUDOERS_TMP"
+    warn "Sudoers rule failed visudo validation — aborting"
+    exit 1
 fi
 
 # ── Systemd service ───────────────────────────────────────────────────────────

@@ -1836,16 +1836,44 @@ RestartSec=10
 WantedBy=multi-user.target
 """
     service_path = Path(f"/etc/systemd/system/{s['service_name']}.service")
+
+    def _rollback_provision():
+        # Undo everything provision created so the user retries from a clean slate
+        # instead of being stuck with an orphan in servers.json + half-written files.
+        for p in (profile_dir, data_dir, SERVERS_DIR / str(server_id)):
+            try:
+                shutil.rmtree(p, ignore_errors=True)
+            except Exception:
+                pass
+        try:
+            d = load_servers()
+            d["servers"] = [x for x in d["servers"] if x.get("id") != server_id]
+            save_servers(d)
+        except Exception:
+            pass
+
+    def _sudo_hint(stderr: str) -> str:
+        if "terminal is required" in stderr or "password is required" in stderr:
+            return (" — the panel's sudoers rule is missing passwordless access for this command. "
+                    "Re-run the installer (curl -sSL https://raw.githubusercontent.com/gaz8157/sitrep/main/install.sh | sudo bash) "
+                    "to refresh /etc/sudoers.d/sitrep.")
+        return ""
+
     tee_result = subprocess.run(
         ["sudo", "tee", str(service_path)],
         input=service_content.encode(),
         capture_output=True
     )
     if tee_result.returncode != 0:
-        return JSONResponse({"error": f"Failed to write service file: {tee_result.stderr.decode()}"}, status_code=500)
+        stderr = tee_result.stderr.decode().strip()
+        _rollback_provision()
+        return JSONResponse({"error": f"Failed to write service file: {stderr}{_sudo_hint(stderr)}"}, status_code=500)
     reload_result = subprocess.run(["sudo", "systemctl", "daemon-reload"], capture_output=True)
     if reload_result.returncode != 0:
-        return JSONResponse({"error": f"Failed to reload systemd: {reload_result.stderr.decode()}"}, status_code=500)
+        stderr = reload_result.stderr.decode().strip()
+        subprocess.run(["sudo", "rm", "-f", str(service_path)], capture_output=True)
+        _rollback_provision()
+        return JSONResponse({"error": f"Failed to reload systemd: {stderr}{_sudo_hint(stderr)}"}, status_code=500)
 
     port_result = _manage_ports(s, "open")
     return {
