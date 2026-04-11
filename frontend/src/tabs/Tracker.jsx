@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useT } from '../ctx.jsx'
-import { API } from '../api.js'
+import { API, authHeaders, getHeaders } from '../api.js'
 import { FloatingPanel } from '../components/ui.jsx'
 
 const TRACKER_PANEL_LABELS = { players: 'Players', events: 'Events', fields: 'Fields', filters: 'Filters' }
@@ -251,11 +251,50 @@ function ReceiverTab({ keyInfo, onRotate, status, C, sz }) {
   const [setKeyInput, setSetKeyInput] = useState('')
   const [setting, setSetting] = useState(false)
   const [setMsg, setSetMsg] = useState(null)
+  const [modIds, setModIds] = useState([])
+  const [modIdInput, setModIdInput] = useState('')
+  const [assigning, setAssigning] = useState(false)
+  const [modIdMsg, setModIdMsg] = useState(null)
+
+  const loadModIds = useCallback(async () => {
+    try {
+      const r = await fetch(`${API}/tracker/mod-ids`, { credentials: 'include', headers: getHeaders() })
+      const d = await r.json()
+      setModIds(d.mod_ids || [])
+    } catch {}
+  }, [])
+
+  useEffect(() => { loadModIds() }, [loadModIds])
+
+  const assignModId = async (mid) => {
+    setAssigning(true); setModIdMsg(null)
+    try {
+      const r = await fetch(`${API}/tracker/mod-id`, {
+        method: 'PUT', credentials: 'include', headers: authHeaders(),
+        body: JSON.stringify({ mod_server_id: mid || '' }),
+      })
+      const d = await r.json()
+      if (r.ok) {
+        setModIdMsg({ ok: true, text: mid ? `Linked to ${mid}` : 'Unlinked' })
+        setModIdInput('')
+        loadModIds()
+        onRotate()
+      } else {
+        setModIdMsg({ ok: false, text: d.error || 'Error' })
+      }
+    } catch (e) {
+      setModIdMsg({ ok: false, text: String(e) })
+    } finally {
+      setAssigning(false)
+    }
+  }
+
+  const currentModId = status?.mod_server_id || null
 
   const reveal = async () => {
     setRevealing(true)
     try {
-      const r = await fetch(`${API}/tracker/key/reveal`, { credentials: 'include' })
+      const r = await fetch(`${API}/tracker/key/reveal`, { credentials: 'include', headers: getHeaders() })
       const d = await r.json()
       setRevealedKey(d.key)
     } finally { setRevealing(false) }
@@ -264,7 +303,7 @@ function ReceiverTab({ keyInfo, onRotate, status, C, sz }) {
   const rotate = async () => {
     setRotating(true)
     try {
-      const r = await fetch(`${API}/tracker/key/rotate`, { method: 'POST', credentials: 'include' })
+      const r = await fetch(`${API}/tracker/key/rotate`, { method: 'POST', credentials: 'include', headers: getHeaders() })
       const d = await r.json()
       if (d.ok) { setRevealedKey(null); onRotate() }
     } finally { setRotating(false) }
@@ -276,7 +315,7 @@ function ReceiverTab({ keyInfo, onRotate, status, C, sz }) {
     try {
       const r = await fetch(`${API}/tracker/key/set`, {
         method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(),
         body: JSON.stringify({ key: setKeyInput.trim() })
       })
       const d = await r.json()
@@ -293,6 +332,68 @@ function ReceiverTab({ keyInfo, onRotate, status, C, sz }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* Mod Server Link */}
+      <div style={{ background: C.bgInput, borderRadius: 8, padding: '12px 14px', border: `1px solid ${currentModId ? C.border : '#fb923c60'}`, borderLeft: `3px solid ${currentModId ? '#4ade80' : '#fb923c'}` }}>
+        <div style={{ color: C.textMuted, fontSize: sz.stat - 1, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Linked Mod Server</div>
+        <div style={{ fontFamily: 'monospace', color: currentModId ? C.textBright : C.textMuted, fontSize: sz.base, marginBottom: 8, letterSpacing: '0.03em' }}>
+          {currentModId || 'Not linked — tracker will be empty until a mod ID is assigned'}
+        </div>
+        {currentModId && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+            <button onClick={() => assignModId('')} disabled={assigning}
+              style={{ fontSize: sz.stat - 1, padding: '4px 10px', borderRadius: 5, border: `1px solid ${C.red}40`, background: C.redBg || C.red + '12', color: C.red, cursor: 'pointer' }}>
+              {assigning ? '…' : 'Unlink'}
+            </button>
+          </div>
+        )}
+
+        <div style={{ color: C.textMuted, fontSize: sz.stat - 1, marginTop: 4, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Recently Seen ({modIds.length})</div>
+        {modIds.length === 0 ? (
+          <div style={{ color: C.textDim, fontSize: sz.stat - 1, padding: '4px 0' }}>No mod servers have reported in recently. Start the Arma server and make sure the PlayerTracker mod's Webhook Base URL points here.</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {modIds.map(row => {
+              const isCurrent = row.mod_server_id === currentModId
+              return (
+                <div key={row.mod_server_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', borderRadius: 5, background: isCurrent ? '#14532d22' : C.bgCard, border: `1px solid ${isCurrent ? '#4ade8040' : C.border}` }}>
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: isCurrent ? '#4ade80' : (row.assigned ? '#60a5fa' : '#6b7280'), flexShrink: 0 }} />
+                  <span style={{ fontFamily: 'monospace', color: C.text, fontSize: sz.stat, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.mod_server_id}</span>
+                  <span style={{ color: C.textMuted, fontSize: sz.stat - 2, flexShrink: 0 }}>{fmtTs(row.last_rx)}</span>
+                  {isCurrent ? (
+                    <span style={{ fontSize: sz.stat - 2, padding: '2px 7px', borderRadius: 4, background: '#4ade8018', color: '#4ade80', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Linked</span>
+                  ) : row.assigned ? (
+                    <span style={{ fontSize: sz.stat - 2, padding: '2px 7px', borderRadius: 4, background: '#60a5fa18', color: '#60a5fa', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Other server</span>
+                  ) : (
+                    <button onClick={() => assignModId(row.mod_server_id)} disabled={assigning}
+                      style={{ fontSize: sz.stat - 2, padding: '2px 9px', borderRadius: 4, border: `1px solid ${C.accent}50`, background: C.accent + '18', color: C.accent, cursor: 'pointer', fontWeight: 700 }}>
+                      Link
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        <div style={{ marginTop: 10 }}>
+          <div style={{ color: C.textMuted, fontSize: sz.stat - 1, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Or Enter Manually</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              type="text" value={modIdInput} onChange={e => { setModIdInput(e.target.value); setModIdMsg(null) }}
+              placeholder="host:port (e.g. 10.0.0.1:2001)"
+              style={{ flex: 1, background: C.bgCard, border: `1px solid ${C.border}`, color: C.text, borderRadius: 5, padding: '5px 8px', fontSize: sz.stat, outline: 'none', fontFamily: 'monospace' }}
+              onKeyDown={e => e.key === 'Enter' && modIdInput.trim() && assignModId(modIdInput.trim())}
+            />
+            <button onClick={() => assignModId(modIdInput.trim())} disabled={assigning || !modIdInput.trim()}
+              style={{ fontSize: sz.stat, padding: '4px 12px', borderRadius: 5, border: `1px solid ${C.accent}40`, background: C.accentBg, color: C.accent, cursor: 'pointer', opacity: !modIdInput.trim() ? 0.45 : 1 }}>
+              {assigning ? 'Linking…' : 'Link'}
+            </button>
+          </div>
+        </div>
+
+        {modIdMsg && <div style={{ marginTop: 6, fontSize: sz.stat - 1, color: modIdMsg.ok ? '#4ade80' : '#f87171' }}>{modIdMsg.text}</div>}
+      </div>
+
       {/* Current key */}
       <div style={{ background: C.bgInput, borderRadius: 8, padding: '12px 14px', border: `1px solid ${C.border}` }}>
         <div style={{ color: C.textMuted, fontSize: sz.stat - 1, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Current API Key</div>
@@ -486,7 +587,7 @@ function ForwardingTab({ settings, onSave, forwardStatus, C, sz }) {
     const name = dest.name || 'unnamed'
     setTesting(p => ({ ...p, [name]: true }))
     try {
-      await fetch(`${API}/tracker/forward/test`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ destination: dest }) })
+      await fetch(`${API}/tracker/forward/test`, { method: 'POST', credentials: 'include', headers: authHeaders(), body: JSON.stringify({ destination: dest }) })
     } finally { setTesting(p => ({ ...p, [name]: false })) }
   }
 
@@ -595,7 +696,7 @@ function DangerTab({ onAfterClear, C, sz }) {
   const doClear = async (target) => {
     setClearing(true); setResult(null)
     try {
-      const r = await fetch(`${API}/tracker/clear`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target }) })
+      const r = await fetch(`${API}/tracker/clear`, { method: 'POST', credentials: 'include', headers: authHeaders(), body: JSON.stringify({ target, scope: 'server' }) })
       const d = await r.json().catch(() => ({}))
       setResult({ ok: r.ok, text: r.ok ? (d.message || `Cleared ${target}`) : (d.error || 'Failed') })
       if (r.ok && onAfterClear) onAfterClear()
@@ -666,10 +767,10 @@ function SettingsModal({ open, onClose, role, C, sz }) {
 
   const load = useCallback(async () => {
     const [s, k, st, fs] = await Promise.all([
-      fetch(`${API}/tracker/settings`, { credentials: 'include' }).then(r => r.json()).catch(() => null),
-      fetch(`${API}/tracker/key`, { credentials: 'include' }).then(r => r.json()).catch(() => null),
-      fetch(`${API}/tracker/status`).then(r => r.json()).catch(() => null),
-      fetch(`${API}/tracker/forward/status`, { credentials: 'include' }).then(r => r.json()).catch(() => null),
+      fetch(`${API}/tracker/settings`, { credentials: 'include', headers: getHeaders() }).then(r => r.json()).catch(() => null),
+      fetch(`${API}/tracker/key`, { credentials: 'include', headers: getHeaders() }).then(r => r.json()).catch(() => null),
+      fetch(`${API}/tracker/status`, { credentials: 'include', headers: getHeaders() }).then(r => r.json()).catch(() => null),
+      fetch(`${API}/tracker/forward/status`, { credentials: 'include', headers: getHeaders() }).then(r => r.json()).catch(() => null),
     ])
     setSettings(s); setKeyInfo(k); setStatus(st); setForwardStatus(fs?.destinations)
   }, [])
@@ -677,7 +778,7 @@ function SettingsModal({ open, onClose, role, C, sz }) {
   useEffect(() => { if (open) load() }, [open, load])
 
   const saveSettings = async (patch) => {
-    await fetch(`${API}/tracker/settings`, { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) })
+    await fetch(`${API}/tracker/settings`, { method: 'PUT', credentials: 'include', headers: authHeaders(), body: JSON.stringify(patch) })
     setSettings(patch)
   }
 
@@ -759,7 +860,7 @@ export default function Tracker({ role }) {
 
   const load = useCallback(async () => {
     try {
-      const r = await fetch(`${API}/tracker/debug`, { credentials: 'include' })
+      const r = await fetch(`${API}/tracker/debug`, { credentials: 'include', headers: getHeaders() })
       if (r.ok) setData(await r.json())
     } catch {}
   }, [])
@@ -787,6 +888,8 @@ export default function Tracker({ role }) {
   const events = [...(data?.events || [])].reverse()
   const wiredUp = data?.wired_up
   const serverRunning = data?.server_running
+  const configured = data?.configured !== false
+  const modServerId = data?.mod_server_id
 
   const factions = [...new Set(snapshots.map(p => p.faction).filter(Boolean))]
   const statuses = [...new Set(snapshots.map(p => p.status).filter(Boolean))]
@@ -889,6 +992,21 @@ export default function Tracker({ role }) {
           )}
         </div>
       </div>
+
+      {/* Not-configured banner (per-server mod link missing) */}
+      {data && !configured && (
+        <div style={{ background: '#7c2d1222', border: `1px solid #fb923c60`, borderLeft: `3px solid #fb923c`, borderRadius: 7, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ color: '#fb923c', fontSize: sz.stat + 1, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Tracker not linked</div>
+            <div style={{ color: C.textMuted, fontSize: sz.stat }}>
+              This panel server isn't linked to a PlayerTracker mod instance yet. {isAdmin ? 'Open Settings → Receiver to auto-detect or assign a mod server ID.' : 'Ask an admin to link this server in Tracker Settings.'}
+            </div>
+          </div>
+          {isAdmin && (
+            <button onClick={() => setShowSettings(true)} style={{ fontSize: sz.stat, padding: '6px 14px', borderRadius: 5, border: `1px solid #fb923c80`, background: '#fb923c18', color: '#fb923c', cursor: 'pointer', fontWeight: 700, flexShrink: 0 }}>Open Settings</button>
+          )}
+        </div>
+      )}
 
       {/* Inline field strip */}
       {!floating.fields && !hidden.fields && (

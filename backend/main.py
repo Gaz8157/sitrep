@@ -432,12 +432,13 @@ TRACKER_DB = PANEL_DATA / "tracker.db"
 TRACKER_SETTINGS_FILE = PANEL_DATA / "tracker_settings.json"
 PLAYERTRACKER_API_KEY = os.environ.get("PLAYERTRACKER_API_KEY", "")
 
-_TRACKER_LATEST_SNAPSHOTS: dict = {}
-_TRACKER_RECENT_EVENTS: deque = deque(maxlen=100)
-_TRACKER_LAST_RX: float = 0.0
+_TRACKER_LATEST_SNAPSHOTS: dict = {}   # mod_server_id -> {uid: snapshot}
+_TRACKER_RECENT_EVENTS: dict = {}       # mod_server_id -> deque
+_TRACKER_LAST_RX: dict = {}             # mod_server_id -> timestamp
 _TRACKER_FORWARD_STATUS: dict = {}
 _TRACKER_SETTINGS_LOCK = Lock()
 _TRACKER_DB_LOCK = Lock()
+_TRACKER_STATE_LOCK = Lock()
 _TRACKER_DEFAULT_SETTINGS: dict = {
     "events_cap": 100,
     "snapshot_ttl_sec": 0,
@@ -459,6 +460,36 @@ def _tracker_save_settings(s: dict):
     tmp = TRACKER_SETTINGS_FILE.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(s, indent=2))
     tmp.replace(TRACKER_SETTINGS_FILE)
+
+def _tracker_events_cap() -> int:
+    try:
+        return max(1, int(_tracker_load_settings().get("events_cap", 100)))
+    except Exception:
+        return 100
+
+def _tracker_events_deque(mod_id: str) -> deque:
+    dq = _TRACKER_RECENT_EVENTS.get(mod_id)
+    if dq is None:
+        dq = deque(maxlen=_tracker_events_cap())
+        _TRACKER_RECENT_EVENTS[mod_id] = dq
+    return dq
+
+def _tracker_panel_mod_id(request: Request) -> str:
+    srv = getattr(request.state, "server", None) or {}
+    return (srv.get("tracker_mod_id") or "").strip()
+
+def _tracker_recent_mod_ids(max_age_sec: int = 300) -> list:
+    now = time.time()
+    known = {(s.get("tracker_mod_id") or "") for s in load_servers().get("servers", [])}
+    known.discard("")
+    out = []
+    with _TRACKER_STATE_LOCK:
+        rows = sorted(_TRACKER_LAST_RX.items(), key=lambda x: -x[1])
+    for mid, ts in rows:
+        if (now - ts) > max_age_sec:
+            continue
+        out.append({"mod_server_id": mid, "last_rx": ts, "assigned": mid in known})
+    return out
 
 def _tracker_check_key(request: Request) -> bool:
     client_host = request.client.host if request.client else ""
@@ -636,7 +667,17 @@ async def auth_middleware(request: Request, call_next):
             _pl = decode_token(token)
             if _pl and _pl.get("sub") and _pl.get("role") in ROLE_ORDER:
                 request.state.user = {"username": _pl["sub"], "role": _pl["role"]}
-        request.state.server = None
+        # Panel UI sends X-Server-ID so tracker admin endpoints can scope by current server;
+        # mod POSTs (no cookie, no header) keep server=None and key off payload.server_id.
+        _sid = request.headers.get("X-Server-ID", "")
+        if _sid:
+            try:
+                _srv = get_server_by_id(int(_sid))
+                request.state.server = _srv if _srv else None
+            except ValueError:
+                request.state.server = None
+        else:
+            request.state.server = None
         return await call_next(request)
     token = request.cookies.get("sitrep-access", "")
     payload = decode_token(token) if token else None
@@ -5332,23 +5373,33 @@ async def stats_player_history(request: Request):
 # === TRACKER ENDPOINTS ===
 
 @app.get("/api/tracker/status")
-async def tracker_status():
+async def tracker_status(request: Request):
     settings = _tracker_load_settings()
     server_running = _tracker_server_running()
-    mod_wired = bool(_TRACKER_LAST_RX > 0 and (time.time() - _TRACKER_LAST_RX) < 90)
+    mod_id = _tracker_panel_mod_id(request)
+    last_rx = 0.0
+    snap_count = 0
+    evt_count = 0
+    if mod_id:
+        with _TRACKER_STATE_LOCK:
+            last_rx = _TRACKER_LAST_RX.get(mod_id, 0.0)
+            snap_count = len(_TRACKER_LATEST_SNAPSHOTS.get(mod_id, {}))
+            evt_count = len(_TRACKER_RECENT_EVENTS.get(mod_id, ()))
+    mod_wired = bool(last_rx > 0 and (time.time() - last_rx) < 90)
     return {
         "wired_up": server_running and mod_wired,
         "server_running": server_running,
-        "last_rx": _TRACKER_LAST_RX or None,
-        "snapshot_count": len(_TRACKER_LATEST_SNAPSHOTS),
-        "event_count": len(_TRACKER_RECENT_EVENTS),
+        "configured": bool(mod_id),
+        "mod_server_id": mod_id or None,
+        "last_rx": last_rx or None,
+        "snapshot_count": snap_count,
+        "event_count": evt_count,
         "sqlite_enabled": settings["sqlite_enabled"],
         "key_configured": bool(PLAYERTRACKER_API_KEY),
     }
 
 @app.post("/api/tracker/track")
 async def tracker_track(request: Request):
-    global _TRACKER_LAST_RX
     if not _tracker_check_key(request):
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
     ct = request.headers.get("content-type", "")
@@ -5358,12 +5409,18 @@ async def tracker_track(request: Request):
     except Exception as e:
         print(f"[TRACKER] /track parse error: {e!r}  content-type={ct!r}  raw_head={raw[:200]!r}")
         return JSONResponse({"error": "Invalid JSON", "detail": str(e)}, status_code=400)
+    mod_id = (payload.get("server_id") or "").strip()
+    if not mod_id:
+        return JSONResponse({"error": "payload missing server_id"}, status_code=400)
     players = payload.get("players", [])
-    for p in players:
-        uid = p.get("uid") or p.get("name", "")
-        if uid:
-            _TRACKER_LATEST_SNAPSHOTS[uid] = {**p, "_server_id": payload.get("server_id", ""), "_ts": payload.get("timestamp", int(time.time()))}
-    _TRACKER_LAST_RX = time.time()
+    ts = payload.get("timestamp", int(time.time()))
+    with _TRACKER_STATE_LOCK:
+        slot = _TRACKER_LATEST_SNAPSHOTS.setdefault(mod_id, {})
+        for p in players:
+            uid = p.get("uid") or p.get("name", "")
+            if uid:
+                slot[uid] = {**p, "_server_id": mod_id, "_ts": ts}
+        _TRACKER_LAST_RX[mod_id] = time.time()
     settings = _tracker_load_settings()
     if settings["sqlite_enabled"]:
         _tracker_db_init()
@@ -5390,7 +5447,6 @@ def _tracker_db_write_snapshot(payload: dict, settings: dict):
 
 @app.post("/api/tracker/event")
 async def tracker_event(request: Request):
-    global _TRACKER_LAST_RX
     if not _tracker_check_key(request):
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
     ct = request.headers.get("content-type", "")
@@ -5400,8 +5456,12 @@ async def tracker_event(request: Request):
     except Exception as e:
         print(f"[TRACKER] /event parse error: {e!r}  content-type={ct!r}  raw_head={raw[:200]!r}")
         return JSONResponse({"error": "Invalid JSON", "detail": str(e)}, status_code=400)
-    _TRACKER_RECENT_EVENTS.append({**payload, "_rx_ts": time.time()})
-    _TRACKER_LAST_RX = time.time()
+    mod_id = (payload.get("server_id") or "").strip()
+    if not mod_id:
+        return JSONResponse({"error": "payload missing server_id"}, status_code=400)
+    with _TRACKER_STATE_LOCK:
+        _tracker_events_deque(mod_id).append({**payload, "_rx_ts": time.time()})
+        _TRACKER_LAST_RX[mod_id] = time.time()
     settings = _tracker_load_settings()
     if settings["sqlite_enabled"]:
         _tracker_db_init()
@@ -5438,13 +5498,32 @@ async def tracker_debug(request: Request):
     if not key_ok and not role_ok:
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
     server_running = _tracker_server_running()
-    mod_wired = bool(_TRACKER_LAST_RX > 0 and (time.time() - _TRACKER_LAST_RX) < 90)
+    mod_id = _tracker_panel_mod_id(request)
+    if not mod_id:
+        return {
+            "wired_up": False,
+            "server_running": server_running,
+            "configured": False,
+            "mod_server_id": None,
+            "last_rx": None,
+            "snapshots": [],
+            "events": [],
+            "forward_status": dict(_TRACKER_FORWARD_STATUS),
+            "key_configured": bool(PLAYERTRACKER_API_KEY),
+        }
+    with _TRACKER_STATE_LOCK:
+        last_rx = _TRACKER_LAST_RX.get(mod_id, 0.0)
+        snapshots = list(_TRACKER_LATEST_SNAPSHOTS.get(mod_id, {}).values())
+        events = list(_TRACKER_RECENT_EVENTS.get(mod_id, ()))
+    mod_wired = bool(last_rx > 0 and (time.time() - last_rx) < 90)
     return {
         "wired_up": server_running and mod_wired,
         "server_running": server_running,
-        "last_rx": _TRACKER_LAST_RX or None,
-        "snapshots": list(_TRACKER_LATEST_SNAPSHOTS.values()),
-        "events": list(_TRACKER_RECENT_EVENTS),
+        "configured": True,
+        "mod_server_id": mod_id,
+        "last_rx": last_rx or None,
+        "snapshots": snapshots,
+        "events": events,
         "forward_status": dict(_TRACKER_FORWARD_STATUS),
         "key_configured": bool(PLAYERTRACKER_API_KEY),
     }
@@ -5466,10 +5545,11 @@ async def tracker_put_settings(request: Request):
             if k in body:
                 current[k] = body[k]
         if "events_cap" in body:
-            global _TRACKER_RECENT_EVENTS
             new_cap = max(1, int(body["events_cap"]))
-            old_events = list(_TRACKER_RECENT_EVENTS)
-            _TRACKER_RECENT_EVENTS = deque(old_events[-new_cap:], maxlen=new_cap)
+            with _TRACKER_STATE_LOCK:
+                for mid, dq in list(_TRACKER_RECENT_EVENTS.items()):
+                    old_events = list(dq)
+                    _TRACKER_RECENT_EVENTS[mid] = deque(old_events[-new_cap:], maxlen=new_cap)
         _tracker_save_settings(current)
         if current["sqlite_enabled"]:
             _tracker_db_init()
@@ -5481,15 +5561,54 @@ async def tracker_clear(request: Request):
     if denied: return denied
     body = await request.json()
     target = body.get("target", "all")
-    if target in ("snapshots", "all"):
-        _TRACKER_LATEST_SNAPSHOTS.clear()
-    if target in ("events", "all"):
-        _TRACKER_RECENT_EVENTS.clear()
+    scope = body.get("scope", "server")  # "server" (default, current panel server) or "global"
+    mod_id = _tracker_panel_mod_id(request)
+    with _TRACKER_STATE_LOCK:
+        if target in ("snapshots", "all"):
+            if scope == "global" or not mod_id:
+                _TRACKER_LATEST_SNAPSHOTS.clear()
+            else:
+                _TRACKER_LATEST_SNAPSHOTS.pop(mod_id, None)
+        if target in ("events", "all"):
+            if scope == "global" or not mod_id:
+                _TRACKER_RECENT_EVENTS.clear()
+            else:
+                _TRACKER_RECENT_EVENTS.pop(mod_id, None)
     if target in ("sqlite", "all"):
         settings = _tracker_load_settings()
         if settings["sqlite_enabled"] and TRACKER_DB.exists():
             await asyncio.to_thread(_tracker_sqlite_wipe)
-    return {"ok": True, "cleared": target}
+    return {"ok": True, "cleared": target, "scope": scope}
+
+@app.get("/api/tracker/mod-ids")
+async def tracker_mod_ids(request: Request):
+    denied = require_role(request, "admin")
+    if denied: return denied
+    return {"mod_ids": _tracker_recent_mod_ids()}
+
+@app.put("/api/tracker/mod-id")
+async def tracker_set_mod_id(request: Request):
+    denied = require_role(request, "admin")
+    if denied: return denied
+    body = await request.json()
+    new_id = (body.get("mod_server_id") or "").strip()
+    srv = getattr(request.state, "server", None)
+    if not srv:
+        return JSONResponse({"error": "No server context"}, status_code=400)
+    registry = load_servers()
+    found = False
+    for entry in registry.get("servers", []):
+        if entry.get("id") == srv.get("id"):
+            if new_id:
+                entry["tracker_mod_id"] = new_id
+            else:
+                entry.pop("tracker_mod_id", None)
+            found = True
+            break
+    if not found:
+        return JSONResponse({"error": "Server not found in registry"}, status_code=404)
+    save_servers(registry)
+    return {"ok": True, "tracker_mod_id": new_id or None}
 
 def _tracker_sqlite_wipe():
     with _TRACKER_DB_LOCK:
@@ -5519,37 +5638,49 @@ async def tracker_forward_test(request: Request):
     return {"ok": True, "result": _TRACKER_FORWARD_STATUS.get(name)}
 
 @app.get("/api/tracker/history/events")
-async def tracker_history_events(request: Request, limit: int = 200, offset: int = 0, event_type: str = ""):
+async def tracker_history_events(request: Request, limit: int = 200, offset: int = 0, event_type: str = "", scope: str = "server"):
     denied = require_role(request, "admin")
     if denied: return denied
     settings = _tracker_load_settings()
     if not settings["sqlite_enabled"] or not TRACKER_DB.exists():
         return {"events": [], "total": 0, "sqlite_enabled": False}
+    mod_id = _tracker_panel_mod_id(request)
+    if scope != "global" and not mod_id:
+        return {"events": [], "total": 0, "sqlite_enabled": True, "configured": False}
     def _query():
         with _TRACKER_DB_LOCK:
             conn = sqlite3.connect(TRACKER_DB)
             conn.row_factory = sqlite3.Row
             try:
                 base = "FROM tr_events"
+                clauses: list = []
                 params: list = []
+                if scope != "global":
+                    clauses.append("server_id=?")
+                    params.append(mod_id)
                 if event_type:
-                    base += " WHERE event_type=?"
+                    clauses.append("event_type=?")
                     params.append(event_type)
+                if clauses:
+                    base += " WHERE " + " AND ".join(clauses)
                 total = conn.execute(f"SELECT COUNT(*) {base}", params).fetchone()[0]
                 rows = conn.execute(f"SELECT * {base} ORDER BY ts DESC LIMIT ? OFFSET ?", params + [limit, offset]).fetchall()
                 return total, [dict(r) for r in rows]
             finally:
                 conn.close()
     total, rows = await asyncio.to_thread(_query)
-    return {"events": rows, "total": total, "sqlite_enabled": True}
+    return {"events": rows, "total": total, "sqlite_enabled": True, "configured": True}
 
 @app.get("/api/tracker/history/snapshots")
-async def tracker_history_snapshots(request: Request, limit: int = 100, offset: int = 0, server_id: str = ""):
+async def tracker_history_snapshots(request: Request, limit: int = 100, offset: int = 0, scope: str = "server"):
     denied = require_role(request, "admin")
     if denied: return denied
     settings = _tracker_load_settings()
     if not settings["sqlite_enabled"] or not TRACKER_DB.exists():
         return {"snapshots": [], "total": 0, "sqlite_enabled": False}
+    mod_id = _tracker_panel_mod_id(request)
+    if scope != "global" and not mod_id:
+        return {"snapshots": [], "total": 0, "sqlite_enabled": True, "configured": False}
     def _query():
         with _TRACKER_DB_LOCK:
             conn = sqlite3.connect(TRACKER_DB)
@@ -5557,16 +5688,16 @@ async def tracker_history_snapshots(request: Request, limit: int = 100, offset: 
             try:
                 base = "FROM tr_snapshots"
                 params: list = []
-                if server_id:
+                if scope != "global":
                     base += " WHERE server_id=?"
-                    params.append(server_id)
+                    params.append(mod_id)
                 total = conn.execute(f"SELECT COUNT(*) {base}", params).fetchone()[0]
                 rows = conn.execute(f"SELECT id,server_id,ts,session_time,players_total,players_alive,map {base} ORDER BY ts DESC LIMIT ? OFFSET ?", params + [limit, offset]).fetchall()
                 return total, [dict(r) for r in rows]
             finally:
                 conn.close()
     total, rows = await asyncio.to_thread(_query)
-    return {"snapshots": rows, "total": total, "sqlite_enabled": True}
+    return {"snapshots": rows, "total": total, "sqlite_enabled": True, "configured": True}
 
 @app.get("/api/tracker/key")
 async def tracker_key_get(request: Request):
