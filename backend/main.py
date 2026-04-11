@@ -2284,6 +2284,30 @@ async def server_reset(request: Request):
                 for f in log_dir.rglob("*.log"): f.unlink(); count += 1
                 return {"message": f"Cleared {count} log file(s)"}
             return {"message": "No log directory found"}
+        elif action == "clear_mods":
+            addons_dir = profile_dir / "addons"
+            if not addons_dir.exists():
+                return {"message": "No addons directory found"}
+            removed = 0
+            freed = 0
+            for item in addons_dir.iterdir():
+                try:
+                    if item.is_dir():
+                        for p in item.rglob("*"):
+                            if p.is_file():
+                                try: freed += p.stat().st_size
+                                except Exception: pass
+                        shutil.rmtree(item)
+                        removed += 1
+                    elif item.is_file():
+                        try: freed += item.stat().st_size
+                        except Exception: pass
+                        item.unlink()
+                        removed += 1
+                except Exception:
+                    continue
+            mb = round(freed / (1024 * 1024), 1)
+            return {"message": f"Cleared {removed} addon(s), {mb} MB freed"}
         else:
             return {"error": f"Unknown action: {action}"}
     except Exception as e:
