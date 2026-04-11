@@ -146,6 +146,9 @@ function ReceiverTab({ keyInfo, onRotate, status, C, sz }) {
   const [revealing, setRevealing] = useState(false)
   const [revealedKey, setRevealedKey] = useState(null)
   const [rotating, setRotating] = useState(false)
+  const [setKeyInput, setSetKeyInput] = useState('')
+  const [setting, setSetting] = useState(false)
+  const [setMsg, setSetMsg] = useState(null)
 
   const reveal = async () => {
     setRevealing(true)
@@ -165,12 +168,34 @@ function ReceiverTab({ keyInfo, onRotate, status, C, sz }) {
     } finally { setRotating(false) }
   }
 
+  const saveKey = async () => {
+    if (!setKeyInput.trim()) return
+    setSetting(true); setSetMsg(null)
+    try {
+      const r = await fetch(`${API}/tracker/key/set`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: setKeyInput.trim() })
+      })
+      const d = await r.json()
+      if (d.ok) { setSetKeyInput(''); setRevealedKey(null); setSetMsg({ ok: true, text: 'Key saved' }); onRotate() }
+      else setSetMsg({ ok: false, text: d.error || 'Error' })
+    } finally { setSetting(false) }
+  }
+
+  const MOD_CONFIG = [
+    { label: 'Webhook Base URL', value: 'http://127.0.0.1:8000/' },
+    { label: 'Track Path',       value: 'api/tracker/track' },
+    { label: 'Event Path',       value: 'api/tracker/event' },
+  ]
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* Current key */}
       <div style={{ background: C.bgInput, borderRadius: 8, padding: '12px 14px', border: `1px solid ${C.border}` }}>
-        <div style={{ color: C.textMuted, fontSize: sz.stat - 1, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>API Key</div>
+        <div style={{ color: C.textMuted, fontSize: sz.stat - 1, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Current API Key</div>
         <div style={{ fontFamily: 'monospace', color: C.textBright, fontSize: sz.base, marginBottom: 8, letterSpacing: '0.05em' }}>
-          {revealedKey || keyInfo?.masked || (keyInfo?.key_configured ? '(not configured)' : '—')}
+          {revealedKey || keyInfo?.masked || (!keyInfo?.key_configured ? 'Not configured' : '—')}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           {keyInfo?.key_configured && !revealedKey && (
@@ -181,11 +206,31 @@ function ReceiverTab({ keyInfo, onRotate, status, C, sz }) {
           {revealedKey && (
             <button onClick={() => setRevealedKey(null)} style={{ fontSize: sz.stat, padding: '4px 10px', borderRadius: 5, border: `1px solid ${C.border}`, background: 'transparent', color: C.textDim, cursor: 'pointer' }}>Hide</button>
           )}
-          <button onClick={rotate} disabled={rotating} style={{ fontSize: sz.stat, padding: '4px 10px', borderRadius: 5, border: `1px solid ${C.red}40`, background: C.redBg, color: C.red, cursor: 'pointer' }}>
-            {rotating ? 'Rotating…' : 'Rotate Key'}
+          <button onClick={rotate} disabled={rotating} style={{ fontSize: sz.stat, padding: '4px 10px', borderRadius: 5, border: `1px solid ${C.red}40`, background: C.redBg || C.red + '12', color: C.red, cursor: 'pointer' }}>
+            {rotating ? 'Rotating…' : 'Rotate (generate new)'}
           </button>
         </div>
       </div>
+
+      {/* Set key from mod */}
+      <div style={{ background: C.bgInput, borderRadius: 8, padding: '12px 14px', border: `1px solid ${C.border}` }}>
+        <div style={{ color: C.textMuted, fontSize: sz.stat - 1, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Set Key (paste from mod)</div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            type="text" value={setKeyInput} onChange={e => { setSetKeyInput(e.target.value); setSetMsg(null) }}
+            placeholder="Paste API key from mod attribute…"
+            style={{ flex: 1, background: C.bgCard, border: `1px solid ${C.border}`, color: C.text, borderRadius: 5, padding: '5px 8px', fontSize: sz.stat, outline: 'none', fontFamily: 'monospace' }}
+            onKeyDown={e => e.key === 'Enter' && saveKey()}
+          />
+          <button onClick={saveKey} disabled={setting || !setKeyInput.trim()}
+            style={{ fontSize: sz.stat, padding: '4px 12px', borderRadius: 5, border: `1px solid ${C.accent}40`, background: C.accentBg, color: C.accent, cursor: 'pointer', opacity: !setKeyInput.trim() ? 0.45 : 1 }}>
+            {setting ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+        {setMsg && <div style={{ marginTop: 6, fontSize: sz.stat - 1, color: setMsg.ok ? '#4ade80' : '#f87171' }}>{setMsg.text}</div>}
+      </div>
+
+      {/* Status */}
       <div style={{ background: C.bgInput, borderRadius: 8, padding: '12px 14px', border: `1px solid ${C.border}` }}>
         <div style={{ color: C.textMuted, fontSize: sz.stat - 1, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Status</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px' }}>
@@ -197,10 +242,22 @@ function ReceiverTab({ keyInfo, onRotate, status, C, sz }) {
           <StatLine label="Key Set" value={status?.key_configured ? 'Yes' : 'No'} ok={status?.key_configured} C={C} sz={sz} />
         </div>
       </div>
-      <div style={{ background: C.bgInput + '80', borderRadius: 8, padding: '10px 14px', border: `1px solid ${C.border}` }}>
-        <div style={{ color: C.textMuted, fontSize: sz.stat - 1, marginBottom: 4 }}>Mod webhook URL</div>
-        <div style={{ fontFamily: 'monospace', color: C.accent, fontSize: sz.stat }}>http://127.0.0.1:8000/api/tracker/track</div>
-        <div style={{ color: C.textMuted, fontSize: sz.stat - 1, marginTop: 6 }}>Header: <span style={{ fontFamily: 'monospace', color: C.text }}>X-Api-Key: &lt;key&gt;</span></div>
+
+      {/* Mod config reference */}
+      <div style={{ background: C.bgInput + '80', borderRadius: 8, padding: '12px 14px', border: `1px solid ${C.border}` }}>
+        <div style={{ color: C.textMuted, fontSize: sz.stat - 1, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Mod Workbench Config</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {MOD_CONFIG.map(({ label, value }) => (
+            <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+              <span style={{ color: C.textMuted, fontSize: sz.stat - 1, flexShrink: 0 }}>{label}</span>
+              <span style={{ fontFamily: 'monospace', color: C.accent, fontSize: sz.stat, textAlign: 'right' }}>{value}</span>
+            </div>
+          ))}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+            <span style={{ color: C.textMuted, fontSize: sz.stat - 1, flexShrink: 0 }}>API Key</span>
+            <span style={{ fontFamily: 'monospace', color: C.textDim, fontSize: sz.stat - 1 }}>← set above</span>
+          </div>
+        </div>
       </div>
     </div>
   )

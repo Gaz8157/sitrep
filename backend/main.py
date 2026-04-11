@@ -5559,6 +5559,30 @@ async def tracker_key_rotate(request: Request):
     masked = "*" * max(0, len(new_key) - 6) + new_key[-6:]
     return {"ok": True, "masked": masked}
 
+@app.post("/api/tracker/key/set")
+async def tracker_key_set(request: Request):
+    global PLAYERTRACKER_API_KEY
+    denied = require_role(request, "owner")
+    if denied: return denied
+    body = await request.json()
+    new_key = (body.get("key") or "").strip()
+    if not new_key:
+        return JSONResponse({"error": "key required"}, status_code=400)
+    PLAYERTRACKER_API_KEY = new_key
+    lines = []
+    if _env_path.exists():
+        for line in _env_path.read_text().splitlines():
+            if line.strip().startswith("PLAYERTRACKER_API_KEY="):
+                continue
+            lines.append(line)
+    lines.append(f"PLAYERTRACKER_API_KEY={new_key}")
+    tmp = _env_path.with_suffix(".env.tmp")
+    tmp.write_text("\n".join(lines) + "\n")
+    tmp.replace(_env_path)
+    os.environ["PLAYERTRACKER_API_KEY"] = new_key
+    masked = "*" * max(0, len(new_key) - 6) + new_key[-6:]
+    return {"ok": True, "masked": masked}
+
 
 frontend_dist = Path("/opt/panel/frontend/dist")
 if frontend_dist.exists():
