@@ -13,7 +13,7 @@ except ImportError:
     UPNP_AVAILABLE = False
 import httpx
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 import psutil
 import jwt as pyjwt
@@ -311,7 +311,7 @@ def _init_server_registry() -> dict:
         "profile_dir": str(PROFILE_DIR),
         "service_name": SERVICE_NAME,
         "port": 2001,
-        "created": datetime.utcnow().isoformat(),
+        "created": datetime.now(timezone.utc).isoformat(),
         "cloned_from": None
     }
     data = load_servers()
@@ -708,7 +708,7 @@ async def auth_middleware(request: Request, call_next):
     # Revocation check — reject tokens issued before tokens_valid_after
     iat = payload.get("iat", 0)
     try:
-        _users_data = load_panel_users(PANEL_DATA)
+        _users_data = await asyncio.to_thread(load_panel_users, PANEL_DATA)
         _u = next((u for u in _users_data["users"] if u["username"] == sub), None)
         if _u and iat < _u.get("tokens_valid_after", 0):
             return JSONResponse({"error": "Session expired — please log in again"}, status_code=401)
@@ -1087,7 +1087,13 @@ def write_config(data, config_path: Path = CONFIG_PATH):
         config_path.parent.mkdir(parents=True, exist_ok=True)
         if config_path.exists():
             shutil.copy2(config_path, config_path.with_suffix('.json.bak'))
-        config_path.write_text(json.dumps(data, indent=2))
+        payload = json.dumps(data, indent=2)
+        tmp = config_path.with_suffix(config_path.suffix + '.tmp')
+        with open(tmp, 'w') as f:
+            f.write(payload)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, config_path)
         return {"message": "Config saved"}
     except Exception as e: return {"error": str(e)}
 
@@ -1636,7 +1642,7 @@ async def discord_auth_callback(request: Request, code: str = "", error: str = "
                 "role": "viewer",
                 "discord_id": discord_id,
                 "discord_username": discord_name,
-                "created": datetime.utcnow().isoformat()
+                "created": datetime.now(timezone.utc).isoformat()
             }
             data["users"].append(new_user)
             save_panel_users(data, data_dir)
@@ -1826,8 +1832,8 @@ async def list_servers_endpoint(request: Request):
     data = load_servers()
     result = []
     for s in data["servers"]:
-        running = is_server_running(s["service_name"])
-        pid = get_server_pid(s["service_name"]) if running else None
+        running = await asyncio.to_thread(is_server_running, s["service_name"])
+        pid = await asyncio.to_thread(get_server_pid, s["service_name"]) if running else None
         # Read live port from the server's config.json rather than the stale stored value
         live_port = s.get("port")
         try:
@@ -1856,11 +1862,12 @@ async def server_instance_status(server_id: int, request: Request):
     s = get_server_by_id(server_id)
     if not s:
         return JSONResponse({"error": "Server not found"}, status_code=404)
-    running = is_server_running(s["service_name"])
+    running = await asyncio.to_thread(is_server_running, s["service_name"])
+    pid = await asyncio.to_thread(get_server_pid, s["service_name"]) if running else None
     return {
         "id": server_id,
         "running": running,
-        "pid": get_server_pid(s["service_name"]) if running else None,
+        "pid": pid,
     }
 
 @app.post("/api/servers")
@@ -1903,7 +1910,7 @@ async def create_server(request: Request):
         "profile_dir": str(SERVERS_DIR / str(server_id) / "profile"),
         "service_name": f"arma-reforger-{server_id}",
         "port": port,
-        "created": datetime.utcnow().isoformat(),
+        "created": datetime.now(timezone.utc).isoformat(),
         "cloned_from": clone_from_id
     }
     data["servers"].append(new_server)
@@ -2041,23 +2048,24 @@ WantedBy=multi-user.target
                     "to refresh /etc/sudoers.d/sitrep.")
         return ""
 
-    tee_result = subprocess.run(
+    tee_result = await asyncio.to_thread(
+        subprocess.run,
         ["sudo", "tee", str(service_path)],
         input=service_content.encode(),
-        capture_output=True
+        capture_output=True,
     )
     if tee_result.returncode != 0:
         stderr = tee_result.stderr.decode().strip()
         _rollback_provision()
         return JSONResponse({"error": f"Failed to write service file: {stderr}{_sudo_hint(stderr)}"}, status_code=500)
-    reload_result = subprocess.run(["sudo", "systemctl", "daemon-reload"], capture_output=True)
+    reload_result = await asyncio.to_thread(subprocess.run, ["sudo", "systemctl", "daemon-reload"], capture_output=True)
     if reload_result.returncode != 0:
         stderr = reload_result.stderr.decode().strip()
-        subprocess.run(["sudo", "rm", "-f", str(service_path)], capture_output=True)
+        await asyncio.to_thread(subprocess.run, ["sudo", "rm", "-f", str(service_path)], capture_output=True)
         _rollback_provision()
         return JSONResponse({"error": f"Failed to reload systemd: {stderr}{_sudo_hint(stderr)}"}, status_code=500)
 
-    port_result = _manage_ports(s, "open")
+    port_result = await asyncio.to_thread(_manage_ports, s, "open")
     return {
         "message": f"Server #{server_id} provisioned",
         "data_dir": str(data_dir),
@@ -2107,18 +2115,18 @@ async def delete_server(server_id: int, request: Request):
         ["sudo", "systemctl", "stop", service_name],
         ["sudo", "systemctl", "disable", service_name],
     ):
-        r = subprocess.run(cmd, capture_output=True)
+        r = await asyncio.to_thread(subprocess.run, cmd, capture_output=True)
         if r.returncode != 0:
             warnings.append(f"{' '.join(cmd[1:])}: {r.stderr.decode().strip() or 'failed'}")
     if unit_path.exists():
-        rm = subprocess.run(["sudo", "rm", "-f", str(unit_path)], capture_output=True)
+        rm = await asyncio.to_thread(subprocess.run, ["sudo", "rm", "-f", str(unit_path)], capture_output=True)
         if rm.returncode != 0:
             warnings.append(f"rm unit: {rm.stderr.decode().strip() or 'failed'}")
-    subprocess.run(["sudo", "systemctl", "daemon-reload"], capture_output=True)
+    await asyncio.to_thread(subprocess.run, ["sudo", "systemctl", "daemon-reload"], capture_output=True)
 
     # 2. Close firewall ports.
     try:
-        _manage_ports(server_to_delete, "close")
+        await asyncio.to_thread(_manage_ports, server_to_delete, "close")
     except Exception as e:
         warnings.append(f"port cleanup: {e}")
 
@@ -2533,9 +2541,11 @@ async def remove_broken_mods(request: Request):
 async def status(request: Request):
     service = srv_service_name(request)
     config_path = srv_config_path(request)
-    running = is_server_running(service)
+    running = await asyncio.to_thread(is_server_running, service)
     config = read_config(config_path)
     game = config.get("game", {})
+    uptime = await asyncio.to_thread(get_uptime, service)
+    pid = await asyncio.to_thread(get_server_pid, service) if running else None
     return {
         "server": {
             "status": "online" if running else "offline",
@@ -2543,13 +2553,13 @@ async def status(request: Request):
             "players": get_player_count() if running else 0,
             "maxPlayers": game.get("maxPlayers", 0),
             "map": game.get("scenarioId", ""),
-            "uptime": get_uptime(service),
+            "uptime": uptime,
             "panelUptime": _fmt_elapsed(time.time() - PROCESS_START),
             "modsLoaded": len(game.get("mods", [])),
             "visible": game.get("visible", True),
             "battlEye": game.get("gameProperties", {}).get("battlEye", False),
             "localIp": get_local_ip(),
-            "pid": get_server_pid(service),
+            "pid": pid,
         },
         "system": await asyncio.to_thread(get_system_stats),
         "mat": _get_mat_stats(),
@@ -2707,7 +2717,7 @@ async def live_players(request: Request):
 async def server_ports(request: Request):
     denied = require_role(request, "admin")
     if denied: return denied
-    return _port_status(srv(request))
+    return await asyncio.to_thread(_port_status, srv(request))
 
 
 @app.post("/api/server/reset")
@@ -2980,7 +2990,7 @@ async def restore_backup(request: Request):
     denied = require_permission(request, "server.reset")
     if denied: return denied
     svc = srv_service_name(request)
-    if is_server_running(svc):
+    if await asyncio.to_thread(is_server_running, svc):
         return {"error": "Server must be stopped before restoring a backup"}
     body = await request.json()
     filename = body.get("filename", "")
@@ -3028,7 +3038,7 @@ async def server_action(action: str, request: Request):
     arma_dir = srv_arma_dir(request)
     service = srv_service_name(request)
     if action in ("start", "stop", "restart"):
-        result = systemctl(action, service)
+        result = await asyncio.to_thread(systemctl, action, service)
         if action == "start":
             # Non-blocking: renew UPnP leases after server starts
             asyncio.create_task(asyncio.to_thread(_manage_ports, srv(request), "renew"))
@@ -3671,7 +3681,7 @@ def _log_action(actor: str, action: str, target: str = '', detail: str = '', dat
             try:
                 conn.execute(
                     "INSERT INTO admin_actions (actor,action,target,detail,timestamp) VALUES (?,?,?,?,?)",
-                    (actor, action, target, detail, datetime.utcnow().isoformat())
+                    (actor, action, target, detail, datetime.now(timezone.utc).isoformat())
                 )
                 conn.commit()
             finally:
@@ -4210,14 +4220,15 @@ async def set_startup_params(request: Request):
     try:
         content = svc_file.read_text()
         new_content = re.sub(r'ExecStart=.+', f'ExecStart={new_line}', content)
-        tee = subprocess.run(
+        tee = await asyncio.to_thread(
+            subprocess.run,
             ["sudo", "tee", str(svc_file)],
             input=new_content.encode(),
-            capture_output=True
+            capture_output=True,
         )
         if tee.returncode != 0:
             return {"error": f"Failed to write service file: {tee.stderr.decode()}"}
-        subprocess.run(["sudo", "systemctl", "daemon-reload"], check=True)
+        await asyncio.to_thread(subprocess.run, ["sudo", "systemctl", "daemon-reload"], check=True)
         _log_action(user, "startup_params_update", "", json.dumps(updates), srv_data_dir(request))
         return {"message": "Startup parameters updated. Restart server to apply.", "execstart": new_line}
     except Exception as e:
@@ -4245,7 +4256,9 @@ async def get_ip_reputation(encoded_ip: str, request: Request):
                 cached = dict(row)
                 # Cache valid for 24h
                 checked = datetime.fromisoformat(cached['checked_at']) if cached.get('checked_at') else None
-                if checked and (datetime.utcnow() - checked).total_seconds() < 86400:
+                if checked and checked.tzinfo is None:
+                    checked = checked.replace(tzinfo=timezone.utc)
+                if checked and (datetime.now(timezone.utc) - checked).total_seconds() < 86400:
                     cached['cached'] = True
                     return cached
         finally:
@@ -4277,7 +4290,7 @@ async def get_ip_reputation(encoded_ip: str, request: Request):
                 "isp": data.get("isp", ""),
                 "country_code": data.get("country_code", ""),
                 "connection_type": data.get("connection_type", ""),
-                "checked_at": datetime.utcnow().isoformat(),
+                "checked_at": datetime.now(timezone.utc).isoformat(),
                 "cached": False
             }
             with _player_db_lock:
@@ -4852,7 +4865,7 @@ async def test_webhook(request: Request):
         async with httpx.AsyncClient(timeout=10) as c:
             r = await c.post(url, json={"embeds":[{"title":"SITREP Test",
                 "description":"Webhook connected!","color":0x69f0ae,
-                "timestamp":datetime.utcnow().isoformat(),"footer":{"text":"SITREP"}}]})
+                "timestamp":datetime.now(timezone.utc).isoformat(),"footer":{"text":"SITREP"}}]})
             return {"message":"Sent!"} if r.status_code in (200,204) else {"error":f"Discord: {r.status_code}"}
     except Exception as e: return {"error": str(e)}
 
@@ -5093,7 +5106,8 @@ async def ws_endpoint(ws: WebSocket, token: str = ""):
     ws_clients.append(ws)
     try:
         while True:
-            await ws.send_json({"event":"heartbeat","data":{"online":is_server_running(get_default_server()["service_name"]),"ts":time.time()}})
+            online = await asyncio.to_thread(is_server_running, get_default_server()["service_name"])
+            await ws.send_json({"event":"heartbeat","data":{"online":online,"ts":time.time()}})
             await asyncio.sleep(3)
     except: pass
     finally:
@@ -5136,9 +5150,10 @@ async def aigm_start(request: Request):
     if denied: return denied
     # Start via systemctl if managed as a service
     try:
-        result = subprocess.run(
+        result = await asyncio.to_thread(
+            subprocess.run,
             ["sudo", "systemctl", "start", "aigm-bridge"],
-            capture_output=True, timeout=10
+            capture_output=True, timeout=10,
         )
         if result.returncode == 0:
             return {"message": "Bridge starting..."}
@@ -5176,9 +5191,10 @@ async def aigm_stop(request: Request):
         pass
     # Stop via systemctl if managed as a service (prevents auto-restart)
     try:
-        result = subprocess.run(
+        result = await asyncio.to_thread(
+            subprocess.run,
             ["sudo", "systemctl", "stop", "aigm-bridge"],
-            capture_output=True, timeout=10
+            capture_output=True, timeout=10,
         )
         if result.returncode == 0:
             return {"message": "Bridge stopped (systemd service)"}
@@ -5842,7 +5858,7 @@ async def stats_player_history(request: Request):
 @app.get("/api/tracker/status")
 async def tracker_status(request: Request):
     settings = _tracker_load_settings()
-    server_running = _tracker_server_running()
+    server_running = await asyncio.to_thread(_tracker_server_running)
     mod_id = _tracker_panel_mod_id(request)
     now = time.time()
     last_rx = 0.0
@@ -5975,7 +5991,7 @@ async def tracker_debug(request: Request):
     role_ok = ROLE_ORDER.get(current_user(request).get("role",""), 0) >= ROLE_ORDER.get("admin", 0)
     if not key_ok and not role_ok:
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
-    server_running = _tracker_server_running()
+    server_running = await asyncio.to_thread(_tracker_server_running)
     mod_id = _tracker_panel_mod_id(request)
     if not mod_id:
         return {
