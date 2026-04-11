@@ -1661,7 +1661,12 @@ async def provision_server(server_id: int, request: Request):
             "bindPort": s["port"],
             "publicAddress": "",
             "publicPort": s["port"],
-            "game": {"name": s["name"], "password": "", "scenarioId": "", "maxPlayers": 64},
+            "game": {
+                "name": s["name"],
+                "password": "",
+                "scenarioId": "{ECC61978EDCC2B5A}Missions/23_Campaign.conf",
+                "maxPlayers": 64
+            },
             "a2s": {"address": "0.0.0.0", "port": s["port"] + 1}
         }
         config_path.write_text(json.dumps(default_cfg, indent=2))
