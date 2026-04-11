@@ -20,7 +20,9 @@ Built with FastAPI + React.
 - **Scheduler** — crontab manager with presets (auto-restart, SteamCMD updates, log cleanup)
 - **Network** — live bandwidth charts, port status, UPnP, RCON connectivity
 - **Webhooks** — Discord webhook integration
-- **AI Game Master** — optional AI GM tab (requires separate bridge setup)
+- **AI Game Master** — optional AI GM tab (requires separate bridge setup, mod ID `68E44E4AE677D389`)
+- **Player Tracker** — live map with player positions, 8/10-digit grid refs, AAR replay, ATAK feed (requires PlayerTracker mod ID `691608368426C1F2`)
+- **System** — owner-only self-diagnostics tab with 10 health checks and traffic-light status (sudo access, disk, Arma binary, sudoers, etc.)
 - **Multi-server** — manage multiple Arma Reforger instances from one panel
 - **Auth** — user accounts with roles: owner / head_admin / admin / moderator / viewer / demo
 - **2FA** — authenticator app (TOTP) with backup codes
@@ -287,6 +289,105 @@ The **AI Game Master** tab in the panel will show **ONLINE** once the bridge is 
 
 ---
 
+## Player Tracker (Optional)
+
+The Tracker tab shows live player positions on the in-game map, exports 8/10-digit MGRS grid references, powers After-Action Review (AAR) replay, and can feed an ATAK server for real-time blue-force tracking. It requires a server-side Arma Reforger mod and a lightweight relay process.
+
+### Prerequisites
+
+| Requirement | Notes |
+|-------------|-------|
+| PlayerTracker mod | Workshop mod ID `691608368426C1F2` — add to your server |
+| Python 3.10+ | Used by the relay (installed automatically by the SITREP installer) |
+
+### Step 1 — Add the PlayerTracker mod to your Arma server
+
+Search the Arma Reforger Workshop for **PlayerTracker** (mod ID `691608368426C1F2`) and add it to your server's mod list via the **Mods** tab in the panel, then restart the server.
+
+### Step 2 — Install the relay
+
+The relay ships alongside the mod at `/home/mark/PlayerTracker/Relay` (or wherever you cloned the repo). Install its dependencies:
+
+```bash
+cd ~/PlayerTracker/Relay
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+### Step 3 — Configure the relay
+
+```bash
+nano ~/PlayerTracker/Relay/config.json
+```
+
+Set the webhook URL to your panel's ingest endpoint:
+```json
+{
+  "webhook_url": "http://127.0.0.1:8000/api/tracker/ingest",
+  "poll_interval_ms": 500
+}
+```
+
+### Step 4 — Start the relay
+
+```bash
+cd ~/PlayerTracker/Relay && source venv/bin/activate && python3 relay.py
+```
+
+To run it as a background service:
+```bash
+sudo tee /etc/systemd/system/sitrep-tracker.service > /dev/null << 'EOF'
+[Unit]
+Description=SITREP Player Tracker Relay
+After=network.target sitrep-api.service
+
+[Service]
+User=YOUR_USERNAME
+WorkingDirectory=/home/YOUR_USERNAME/PlayerTracker/Relay
+ExecStart=/home/YOUR_USERNAME/PlayerTracker/Relay/venv/bin/python3 relay.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now sitrep-tracker
+```
+
+The **Tracker** tab will populate with live player data once the relay is running and the mod is active in-game.
+
+---
+
+## System Tab (Owner Only)
+
+The **System** tab (bottom of the sidebar, owner accounts only) runs 10 health checks every 15 seconds and displays a traffic-light status for your installation:
+
+| Check | What it verifies |
+|-------|-----------------|
+| `sudoers_file` | `/etc/sudoers.d/sitrep` exists |
+| `sudo_systemctl` | `sudo -n` permission for `/bin/systemctl` |
+| `sudo_tee` | `sudo -n` permission for `/usr/bin/tee` |
+| `sudo_rm` | `sudo -n` permission for `rm -f` |
+| `sudo_ufw` | `sudo -n` permission for `ufw status` |
+| `arma_binary` | `/opt/arma-server/ArmaReforgerServer` exists |
+| `systemd_dir` | `/etc/systemd/system` is present |
+| `disk_space` | ≥ 1 GB free on `/opt` (warn < 5 GB) |
+| `data_writable` | `backend/data/` directory is writable |
+| `uv_lock` | `uv.lock` is not older than `pyproject.toml` |
+
+Each failing check shows a **fix:** hint with a copy button. All checks currently point to the one-shot updater:
+
+```bash
+sudo /opt/panel/scripts/update.sh
+```
+
+The same data is available as JSON at `GET /api/system/diagnostics` (owner token required).
+
+---
+
 ## Managing the Panel
 
 ```bash
@@ -308,6 +409,23 @@ sudo systemctl start sitrep-api
 
 ## Updating
 
+### One-shot updater (recommended)
+
+```bash
+sudo /opt/panel/scripts/update.sh
+```
+
+This script:
+1. `git fetch` → hard-reset to `origin/<branch>` (safe even after force-pushed history)
+2. Refreshes `/etc/sudoers.d/sitrep` via `scripts/bootstrap-sudoers.sh`
+3. `uv sync` — replays `backend/uv.lock` exactly, no surprise dep upgrades
+4. `npm ci && npm run build` — rebuilds the frontend
+5. Restarts `sitrep-api`
+
+After it finishes, the **System** tab will confirm all checks are green.
+
+### Manual update
+
 ```bash
 cd /opt/panel
 git pull
@@ -316,11 +434,8 @@ cd frontend && npm ci && npm run build && cd ..
 sudo systemctl restart sitrep-api
 ```
 
-> `uv sync --frozen` replays `backend/uv.lock` exactly — no surprise dep
-> upgrades. If you pulled a commit that bumped `pyproject.toml`, uv will
-> install the new pin into `backend/.venv/` automatically.
+### Update the Arma Reforger server
 
-To also update the Arma Reforger server:
 ```bash
 /usr/games/steamcmd +force_install_dir /opt/arma-server +login anonymous +app_update 1874900 +quit
 ```
@@ -371,6 +486,8 @@ Double-clicking the shortcut will start WSL, ensure the panel is running, and op
 
 ## Uninstall
 
+### Panel only
+
 ```bash
 sudo systemctl disable --now sitrep-api sitrep-web 2>/dev/null
 sudo rm -f /etc/systemd/system/sitrep-api.service
@@ -379,11 +496,42 @@ sudo systemctl daemon-reload
 sudo rm -rf /opt/panel
 ```
 
-To also remove the Arma server:
+### Complete purge — everything (panel + Arma server + optional services)
+
+Run this to remove every file installed by SITREP and the Arma Reforger server in one pass:
+
 ```bash
-sudo systemctl disable --now arma-reforger
+# Stop and remove all SITREP services
+sudo systemctl disable --now sitrep-api sitrep-web sitrep-tracker 2>/dev/null
+sudo rm -f /etc/systemd/system/sitrep-api.service
+sudo rm -f /etc/systemd/system/sitrep-web.service
+sudo rm -f /etc/systemd/system/sitrep-tracker.service
+
+# Stop and remove AI GM bridge
+sudo systemctl disable --now aigm-bridge 2>/dev/null
+sudo rm -f /etc/systemd/system/aigm-bridge.service
+
+# Stop and remove Arma Reforger server
+sudo systemctl disable --now arma-reforger 2>/dev/null
 sudo rm -f /etc/systemd/system/arma-reforger.service
+sudo rm -f /etc/systemd/system/arma-reforger-probe.service 2>/dev/null
 sudo rm -rf /opt/arma-server
+
+# Remove panel and sudoers rule
+sudo rm -f /etc/sudoers.d/sitrep
+sudo rm -rf /opt/panel
+
+# Reload systemd
+sudo systemctl daemon-reload
+
+# Optional — remove AIGameMaster and PlayerTracker clones
+# rm -rf ~/AIGameMaster ~/PlayerTracker
+```
+
+After a purge, re-install from scratch with the one-liner:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/gaz8157/sitrep/main/install.sh | sudo bash
 ```
 
 ---
