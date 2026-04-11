@@ -26,17 +26,25 @@ It provides server control, live monitoring, mod workshop, file browser, player/
 ## Step 1 — Install System Dependencies
 
 ```bash
-# Python 3.11+ and pip
+# System basics
 sudo apt update
-sudo apt install -y python3 python3-pip python3-venv
+sudo apt install -y git curl python3 build-essential
 
-# Node.js 20 via NodeSource
+# Node.js 20 via NodeSource (Ubuntu ships an older version)
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install -y nodejs
 
-# Build tools (needed for some Python packages)
-sudo apt install -y build-essential
+# uv — manages the backend's Python environment from pyproject.toml + uv.lock
+# This installs uv system-wide to /usr/local/bin/uv
+curl -LsSf https://astral.sh/uv/install.sh | \
+  sudo env UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1 sh
 ```
+
+> **Why uv, not pip?** The panel pins its Python toolchain via `backend/uv.lock`,
+> so `uv sync --frozen` reproduces the exact environment the maintainers built
+> against — no dependency drift between your box and the CI build. uv also
+> auto-fetches Python 3.12 if your host lacks a matching version, so you don't
+> need `python3-pip` or `python3-venv` on the host at all.
 
 ---
 
@@ -56,20 +64,19 @@ All subsequent steps assume this user. Adjust if you run as a different user.
 ## Step 3 — Install the Panel
 
 ```bash
-# Clone or extract the panel to /opt/panel
-sudo mkdir -p /opt/panel
-sudo chown arma:arma /opt/panel
-
-# As the arma user:
-cd /opt/panel
-# (copy your panel files here)
+# Clone the panel to /opt/panel
+sudo git clone https://github.com/gaz8157/sitrep.git /opt/panel
+sudo chown -R arma:arma /opt/panel
 
 # Create the Python virtual environment with uv
-# (installs uv if you don't have it — see https://docs.astral.sh/uv/ for alternatives)
-curl -LsSf https://astral.sh/uv/install.sh | sh
+# (uv was installed system-wide in Step 1)
 cd /opt/panel/backend
-uv sync --frozen
+sudo -Hu arma uv sync --frozen
 ```
+
+This creates `/opt/panel/backend/.venv/` owned by the `arma` user, populated
+from `pyproject.toml` + `uv.lock`. The systemd service (Step 8) points at
+`.venv/bin/uvicorn` — no system-wide Python package pollution.
 
 ---
 
@@ -312,19 +319,25 @@ Restart the panel after updating `.env`.
 ```bash
 cd /opt/panel
 
-# Pull new code (or replace files manually)
-git pull   # if using git
+# Pull new code
+git pull
+
+# Replay the backend lockfile (picks up any dep bumps)
+cd backend && sudo -Hu arma uv sync --frozen && cd ..
 
 # Rebuild the frontend
-cd frontend
-npm install
-npm run build
+cd frontend && sudo -Hu arma npm ci && sudo -Hu arma npm run build && cd ..
 
 # Restart the backend
 sudo systemctl restart sitrep-api
 ```
 
 **Always rebuild the frontend after updating** — the backend serves the compiled `dist/` folder, not the source files directly.
+
+> Running `uv sync` as the service user (`arma` here) keeps `.venv/` ownership
+> consistent with the systemd unit. If you previously ran install.sh as root,
+> the installer already chown'd `backend/` to your service user; the `sudo -Hu`
+> prefix preserves that.
 
 ---
 
@@ -366,26 +379,29 @@ systemctl status arma-reforger   # or whatever your service is named
 
 ```
 /opt/panel/
-├── .env                    ← Your configuration (created from .env.example)
-├── .env.example            ← Template — copy to .env
+├── .env                    ← Your configuration (created by install.sh on first run)
+├── .env.example            ← Template — documents every supported variable
+├── install.sh              ← One-shot installer (uv + systemd + SteamCMD)
 ├── backend/
-│   ├── main.py             ← FastAPI application
-│   ├── requirements.txt    ← Python dependencies
-│   ├── venv/               ← Python virtual environment
-│   └── data/               ← Runtime data (auto-created)
+│   ├── main.py             ← FastAPI application (single file)
+│   ├── pyproject.toml      ← Python project + pinned dep ranges
+│   ├── uv.lock             ← Exact resolved versions (reproduces CI env)
+│   ├── .venv/              ← uv-managed virtual environment
+│   └── data/               ← Runtime data (auto-created on first boot)
 │       ├── secret.key      ← Auto-generated JWT secret (chmod 600)
 │       ├── panel_users.json
 │       ├── refresh_tokens.json
 │       ├── permissions.json
+│       ├── settings.json   ← Panel settings (SMTP, Discord, etc.)
 │       ├── servers.json
 │       └── ws_index.json   ← Workshop mod index cache
 ├── frontend/
-│   ├── src/App.jsx         ← React application source
+│   ├── src/                ← React 19 source (App.jsx + tabs/*.jsx)
 │   ├── dist/               ← Compiled frontend (served by backend)
 │   └── package.json
 └── docs/
     ├── INSTALL.md          ← This file
-    └── QUALITY_REPORT.md   ← Security & quality audit
+    └── session-*.md        ← Dev session writeups
 ```
 
 ---

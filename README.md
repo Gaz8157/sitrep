@@ -311,9 +311,14 @@ sudo systemctl start sitrep-api
 ```bash
 cd /opt/panel
 git pull
+cd backend && uv sync --frozen && cd ..
 cd frontend && npm ci && npm run build && cd ..
 sudo systemctl restart sitrep-api
 ```
+
+> `uv sync --frozen` replays `backend/uv.lock` exactly — no surprise dep
+> upgrades. If you pulled a commit that bumped `pyproject.toml`, uv will
+> install the new pin into `backend/.venv/` automatically.
 
 To also update the Arma Reforger server:
 ```bash
