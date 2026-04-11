@@ -144,7 +144,11 @@ sudo -u "$SERVICE_USER" mkdir -p \
 # Write a starter config.json if one doesn't exist
 if [[ ! -f "$ARMA_DIR/config.json" ]]; then
     info "Creating default server config..."
-    sudo -u "$SERVICE_USER" tee "$ARMA_DIR/config.json" > /dev/null << 'ARMACFG'
+    RCON_PASSWORD="$(openssl rand -base64 24 2>/dev/null | tr -d '\n+/=' | head -c 24)"
+    if [[ -z "$RCON_PASSWORD" ]]; then
+        RCON_PASSWORD="$(head -c 18 /dev/urandom | base64 | tr -d '\n+/=' | head -c 24)"
+    fi
+    sudo -u "$SERVICE_USER" tee "$ARMA_DIR/config.json" > /dev/null << ARMACFG
 {
   "bindAddress": "",
   "bindPort": 2001,
@@ -178,13 +182,13 @@ if [[ ! -f "$ARMA_DIR/config.json" ]]; then
   "rcon": {
     "address": "127.0.0.1",
     "port": 19999,
-    "password": "changeme",
+    "password": "${RCON_PASSWORD}",
     "permission": "admin",
     "maxClients": 16
   }
 }
 ARMACFG
-    success "Default config.json created"
+    success "Default config.json created (RCON password randomized)"
 fi
 
 # Create the arma-reforger systemd service if it doesn't exist

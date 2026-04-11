@@ -4,6 +4,24 @@ import { API, put, del, on401, getHeaders } from '../api.js'
 import { useFetchOnce } from '../hooks.js'
 import { Badge, Btn, Toggle } from '../components/ui.jsx'
 import { ROLE_COLORS, THEMES } from '../constants.js'
+
+function PwField({id, label, value, onChange, autoComplete, show, setShow}) {
+  const {C, sz} = useT()
+  return (
+    <div>
+      <label style={{display:'block',fontWeight:700,color:C.textDim,fontSize:sz.stat,marginBottom:6,textTransform:'uppercase',letterSpacing:'0.8px'}}>{label}</label>
+      <div className="pw-field" style={{position:'relative',border:`1px solid ${C.border}`,borderRadius:10,background:C.bgInput,transition:'border-color 0.15s'}}>
+        <input type={show[id]?'text':'password'} autoComplete={autoComplete} value={value} onChange={e=>onChange(e.target.value)}
+          style={{width:'100%',background:'transparent',border:'none',borderRadius:10,padding:'9px 52px 9px 13px',color:C.text,fontSize:sz.input,outline:'none',fontFamily:'inherit',boxSizing:'border-box'}}/>
+        <button type="button" onClick={()=>setShow(s=>({...s,[id]:!s[id]}))}
+          style={{position:'absolute',right:0,top:0,bottom:0,width:44,display:'flex',alignItems:'center',justifyContent:'center',background:'none',border:'none',cursor:'pointer',color:show[id]?C.accent:C.textMuted,fontSize:sz.stat,fontWeight:700,letterSpacing:'0.3px',transition:'color 0.15s'}}>
+          {show[id]?'HIDE':'SHOW'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function ProfileTab({authUser, userProfile, setUserProfile, toast}) {
   const {C, sz} = useT()
   const [displayName, setDisplayName] = useState(userProfile?.display_name || '')
@@ -233,23 +251,6 @@ function SecurityTab({authUser, toast}) {
     } finally { setSaving(false) }
   }
 
-  const inputBase = {width:'100%',background:C.bgInput,border:`1px solid ${C.border}`,borderRadius:10,padding:'9px 13px',color:C.text,fontSize:sz.input,outline:'none',fontFamily:'inherit',boxSizing:'border-box',paddingRight:52,transition:'border-color 0.15s'}
-  const PLabel = ({children}) => <label style={{display:'block',fontWeight:700,color:C.textDim,fontSize:sz.stat,marginBottom:6,textTransform:'uppercase',letterSpacing:'0.8px'}}>{children}</label>
-
-  const PwField = ({id, label, value, onChange, autoComplete}) => (
-    <div>
-      <PLabel>{label}</PLabel>
-      <div className="pw-field" style={{position:'relative',border:`1px solid ${C.border}`,borderRadius:10,background:C.bgInput,transition:'border-color 0.15s'}}>
-        <input type={show[id]?'text':'password'} autoComplete={autoComplete} value={value} onChange={e=>onChange(e.target.value)}
-          style={{width:'100%',background:'transparent',border:'none',borderRadius:10,padding:'9px 52px 9px 13px',color:C.text,fontSize:sz.input,outline:'none',fontFamily:'inherit',boxSizing:'border-box'}}/>
-        <button type="button" onClick={()=>setShow(s=>({...s,[id]:!s[id]}))}
-          style={{position:'absolute',right:0,top:0,bottom:0,width:44,display:'flex',alignItems:'center',justifyContent:'center',background:'none',border:'none',cursor:'pointer',color:show[id]?C.accent:C.textMuted,fontSize:sz.stat,fontWeight:700,letterSpacing:'0.3px',transition:'color 0.15s'}}>
-          {show[id]?'HIDE':'SHOW'}
-        </button>
-      </div>
-    </div>
-  )
-
   return (
     <div className="profile-tab-anim">
       <div style={{fontWeight:900,color:C.textBright,fontSize:sz.base+2,marginBottom:4}}>Recovery Email</div>
@@ -299,10 +300,10 @@ function SecurityTab({authUser, toast}) {
       <div style={{fontWeight:900,color:C.textBright,fontSize:sz.base+2,marginBottom:4}}>Change Password</div>
       <div style={{color:C.textMuted,fontSize:sz.stat,marginBottom:20}}>Changing your password will sign out all other active sessions.</div>
       <div style={{display:'flex',flexDirection:'column',gap:14,maxWidth:380}}>
-        <PwField id="current" label="Current Password" value={current} onChange={setCurrent} autoComplete="current-password"/>
+        <PwField id="current" label="Current Password" value={current} onChange={setCurrent} autoComplete="current-password" show={show} setShow={setShow}/>
 
         <div>
-          <PwField id="next" label="New Password" value={next} onChange={setNext} autoComplete="new-password"/>
+          <PwField id="next" label="New Password" value={next} onChange={setNext} autoComplete="new-password" show={show} setShow={setShow}/>
           {/* Strength bar */}
           {next.length > 0 && (
             <div style={{marginTop:8}}>
@@ -316,7 +317,7 @@ function SecurityTab({authUser, toast}) {
           )}
         </div>
 
-        <PwField id="confirm" label="Confirm New Password" value={confirm} onChange={setConfirm} autoComplete="new-password"/>
+        <PwField id="confirm" label="Confirm New Password" value={confirm} onChange={setConfirm} autoComplete="new-password" show={show} setShow={setShow}/>
 
         {/* Confirm match indicator */}
         {confirm.length > 0 && (

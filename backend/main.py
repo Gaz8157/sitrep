@@ -1780,12 +1780,19 @@ async def provision_server(server_id: int, request: Request):
                 new_bind = int(s["port"])
                 cfg["bindPort"] = new_bind
                 cfg["publicPort"] = new_bind
+                # Scrub inherited secrets/identity — don't carry the source's
+                # public IP, in-game passwords, or RCON password into a clone.
+                cfg["publicAddress"] = ""
                 if isinstance(cfg.get("game"), dict):
                     cfg["game"].pop("port", None)
+                    cfg["game"]["password"] = ""
+                    cfg["game"]["passwordAdmin"] = ""
                 if isinstance(cfg.get("a2s"), dict) and "port" in cfg["a2s"]:
                     cfg["a2s"]["port"] = new_bind + (int(cfg["a2s"]["port"]) - old_bind)
-                if isinstance(cfg.get("rcon"), dict) and "port" in cfg["rcon"]:
-                    cfg["rcon"]["port"] = new_bind + (int(cfg["rcon"]["port"]) - old_bind)
+                if isinstance(cfg.get("rcon"), dict):
+                    if "port" in cfg["rcon"]:
+                        cfg["rcon"]["port"] = new_bind + (int(cfg["rcon"]["port"]) - old_bind)
+                    cfg["rcon"]["password"] = ""
                 config_path.write_text(json.dumps(cfg, indent=2))
             except Exception as e:
                 return JSONResponse({"error": f"Failed to update cloned config: {e}"}, status_code=500)
@@ -1982,20 +1989,30 @@ class SetupRequest(BaseModel):
     email: str = ""
 
 @app.post("/api/setup/complete")
-async def setup_complete(body: SetupRequest, response: Response):
+async def setup_complete(body: SetupRequest, request: Request, response: Response):
     """
     First-run setup: create the owner account.
     Only works when no owner exists yet — cannot be used to overwrite an existing owner.
+    Loopback-only: must be completed from the install host to prevent internet-wide
+    race-to-claim between install finishing and the admin clicking "Create Account".
     """
     if not needs_setup():
         return JSONResponse({"error": "Setup already complete"}, status_code=403)
+    client_ip = request.client.host if request.client else ""
+    if client_ip not in ("127.0.0.1", "::1"):
+        return JSONResponse(
+            {"error": "First-run setup must be completed from the install host. "
+                      "Open http://localhost:8000 directly on the server, or use an SSH "
+                      "tunnel: ssh -L 8000:localhost:8000 user@host"},
+            status_code=403
+        )
     username = body.username.strip()
     password = body.password
     email = body.email.strip().lower()
     if not username or len(username) < 2:
         return JSONResponse({"error": "Username must be at least 2 characters"}, status_code=400)
-    if not password:
-        return JSONResponse({"error": "Password is required"}, status_code=400)
+    if not password or len(password) < 12:
+        return JSONResponse({"error": "Password must be at least 12 characters"}, status_code=400)
     data = load_panel_users()
     user_obj = {
         "username": username,

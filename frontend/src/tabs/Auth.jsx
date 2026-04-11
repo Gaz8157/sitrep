@@ -113,7 +113,7 @@ export function SetupWizard({onComplete}){const{C,sz}=useT()
 
   const submitAccount=async e=>{e.preventDefault();setErr('')
     if(password!==confirm){setErr('Passwords do not match');return}
-    if(!password){setErr('Password is required');return}
+    if(!password||password.length<12){setErr('Password must be at least 12 characters');return}
     if(!email){setErr('Recovery email is required');return}
     setLoading(true)
     try{const r=await fetch(`${API}/setup/complete`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password,email})});const d=await r.json()
@@ -146,7 +146,7 @@ export function SetupWizard({onComplete}){const{C,sz}=useT()
           <form onSubmit={submitAccount}>
             <Input label="Username" value={username} onChange={setUsername} placeholder="e.g. admin"/>
             <Input label="Recovery Email" value={email} onChange={setEmail} type="email" placeholder="your@email.com"/>
-            <Input label="Password" value={password} onChange={setPassword} type="password" placeholder="password"/>
+            <Input label="Password" value={password} onChange={setPassword} type="password" placeholder="at least 12 characters"/>
             <Input label="Confirm Password" value={confirm} onChange={setConfirm} type="password" placeholder="repeat password"/>
             {err&&<div className="mb-3 px-3 py-2.5 rounded-lg font-bold" style={{background:C.redBg,color:C.red,border:`1px solid ${C.redBorder}`,fontSize:sz.stat}}>{err}</div>}
             <button type="submit" disabled={loading||!username||!password||!confirm||!email} className="w-full py-3 rounded-xl font-black uppercase tracking-widest cursor-pointer disabled:opacity-50 transition-all" style={{background:C.accent,color:'#000',fontSize:sz.base}}>{loading?'Creating...':'Create Account'}</button>
