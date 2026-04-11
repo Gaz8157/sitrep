@@ -186,8 +186,10 @@ export default function ServerPicker({authUser, userProfile, setUserProfile, onS
   const deleteServer = async (server, e) => {
     e.stopPropagation()
     if (!confirm(`Remove "${server.name}" from the panel?\n\nPort rules for ${server.port}/udp, ${server.port + 1}/udp, ${server.port}/tcp will be removed automatically.\n(Server files are not deleted)`)) return
+    const prev = servers
+    setServers(p => p ? p.filter(s => s.id !== server.id) : p)
     const r = await fetch(`${API}/servers/${server.id}`, {method:'DELETE',headers:authHeaders()}).then(res=>res.json()).catch(e=>({error:e.message}))
-    if (r?.error) toast(r.error, 'danger')
+    if (r?.error) { setServers(prev); toast(r.error, 'danger') }
     else { toast('Server removed', 'warning'); fetchServers() }
   }
 
