@@ -1,20 +1,22 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useT } from '../ctx.jsx'
 import { API } from '../api.js'
+import { FloatingPanel } from '../components/ui.jsx'
+
+const TRACKER_PANEL_LABELS = { players: 'Players', events: 'Events', fields: 'Fields', filters: 'Filters' }
 
 const TRACKER_FIELDS = [
   { id: 'status',   label: 'Status',          on: true  },
   { id: 'faction',  label: 'Faction',          on: true  },
   { id: 'health',   label: 'Health',           on: true  },
-  { id: 'grid',     label: 'Grid (8-digit)',    on: true  },
-  { id: 'grid_10',  label: 'Grid (10-digit)',   on: false },
-  { id: 'heading',  label: 'Heading',           on: true  },
-  { id: 'vehicle',  label: 'Vehicle',           on: true  },
-  { id: 'squad',    label: 'Squad',             on: true  },
-  { id: 'location', label: 'Nearest Location',  on: true  },
-  { id: 'elevation',label: 'Elevation',         on: false },
-  { id: 'roles',    label: 'Admin / GM',        on: true  },
-  { id: 'uid',      label: 'UID',               on: false },
+  { id: 'grid',     label: 'Grid 8',           on: true  },
+  { id: 'grid_10',  label: 'Grid 10',          on: true  },
+  { id: 'heading',  label: 'Heading',          on: true  },
+  { id: 'vehicle',  label: 'Vehicle',          on: true  },
+  { id: 'squad',    label: 'Squad',            on: true  },
+  { id: 'location', label: 'Location',         on: true  },
+  { id: 'elevation',label: 'Elevation',        on: true  },
+  { id: 'uid',      label: 'UID',              on: true  },
 ]
 
 const EVENT_COLORS = {
@@ -35,15 +37,34 @@ function fmtTs(ts) {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
-function HealthBar({ value, C }) {
+function HealthBar({ value, C, slim }) {
   const pct = Math.round((value ?? 1) * 100)
   const color = pct > 60 ? '#4ade80' : pct > 30 ? '#fb923c' : '#f87171'
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-      <div style={{ flex: 1, height: 4, background: C.bgInput, borderRadius: 2, overflow: 'hidden' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: slim ? 4 : 6 }}>
+      <div style={{ flex: 1, height: slim ? 3 : 4, background: C.bgInput, borderRadius: 2, overflow: 'hidden' }}>
         <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 2, transition: 'width 0.3s' }} />
       </div>
-      <span style={{ color: C.textMuted, fontSize: 9, minWidth: 24, textAlign: 'right' }}>{pct}%</span>
+      <span style={{ color: C.textMuted, fontSize: slim ? 8 : 9, minWidth: slim ? 20 : 24, textAlign: 'right' }}>{pct}%</span>
+    </div>
+  )
+}
+
+function RoleBadges({ player, C, size = 8 }) {
+  const badges = []
+  if (player.is_admin)        badges.push({ label: 'ADM', color: '#fb923c' })
+  if (player.is_gm)           badges.push({ label: 'GM',  color: C.accent })
+  if (player.is_squad_leader) badges.push({ label: 'SL',  color: '#60a5fa' })
+  if (badges.length === 0) return null
+  return (
+    <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
+      {badges.map(r => (
+        <span key={r.label} style={{
+          fontSize: size, fontWeight: 900, padding: '1px 3px', borderRadius: 3,
+          background: r.color + '20', color: r.color, border: `1px solid ${r.color}40`,
+          lineHeight: 1.2, letterSpacing: '0.02em',
+        }}>{r.label}</span>
+      ))}
     </div>
   )
 }
@@ -61,26 +82,53 @@ function FieldToggle({ id, label, checked, onChange, C, sz }) {
   )
 }
 
-function TrackerPlayerCard({ player, fields, C, sz }) {
+function TrackerPlayerCard({ player, fields, expanded, onToggle, C, sz }) {
   const on = (id) => fields.find(f => f.id === id)?.on
   const status = player.status || 'unspawned'
   const statusColor = STATUS_COLOR[status] || '#6b7280'
   const isDead = status === 'dead'
 
-  return (
-    <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 12px', opacity: isDead ? 0.55 : 1, transition: 'opacity 0.2s' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-        <div style={{ width: 7, height: 7, borderRadius: '50%', background: statusColor, flexShrink: 0 }} />
-        <span style={{ color: C.textBright, fontSize: sz.base, fontWeight: 700, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{player.name || '?'}</span>
-        {on('roles') && (player.is_admin || player.is_gm) && (
-          <div style={{ display: 'flex', gap: 3 }}>
-            {player.is_admin && <span style={{ fontSize: 8, fontWeight: 900, padding: '1px 4px', borderRadius: 3, background: C.orange + '20', color: C.orange, border: `1px solid ${C.orange}40` }}>ADM</span>}
-            {player.is_gm && <span style={{ fontSize: 8, fontWeight: 900, padding: '1px 4px', borderRadius: 3, background: C.accent + '20', color: C.accent, border: `1px solid ${C.accent}40` }}>GM</span>}
-          </div>
-        )}
-      </div>
+  const baseStyle = {
+    background: C.bgCard,
+    border: `1px solid ${expanded ? C.accent + '70' : C.border}`,
+    borderRadius: 6,
+    opacity: isDead ? 0.6 : 1,
+    cursor: 'pointer',
+    transition: 'border-color 150ms',
+    minWidth: 0,
+    gridColumn: expanded ? 'span 2' : 'span 1',
+    gridRow:    expanded ? 'span 2' : 'span 1',
+    overflow: 'hidden',
+  }
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px 8px' }}>
+  if (!expanded) {
+    return (
+      <div onClick={onToggle} style={{ ...baseStyle, padding: '6px 8px' }}
+        onMouseEnter={e => e.currentTarget.style.borderColor = C.accent + '50'}
+        onMouseLeave={e => e.currentTarget.style.borderColor = C.border}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3, minWidth: 0 }}>
+          <div style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor, flexShrink: 0 }} />
+          <span style={{ color: C.textBright, fontSize: sz.stat, fontWeight: 700, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{player.name || '?'}</span>
+          <RoleBadges player={player} C={C} size={7} />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, fontSize: sz.stat - 2, color: C.textDim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 3 }}>
+          {on('faction') && player.faction && <span>{player.faction}</span>}
+          {on('grid') && player.grid && <span style={{ fontFamily: 'monospace', color: C.text }}>{player.grid}</span>}
+          {on('vehicle') && player.in_vehicle && <span style={{ color: C.accent, fontWeight: 700 }}>VEH</span>}
+        </div>
+        {on('health') && player.health != null && <HealthBar value={player.health} C={C} slim />}
+      </div>
+    )
+  }
+
+  return (
+    <div onClick={onToggle} style={{ ...baseStyle, padding: '10px 12px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8, minWidth: 0 }}>
+        <div style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor, flexShrink: 0 }} />
+        <span style={{ color: C.textBright, fontSize: sz.base + 1, fontWeight: 700, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{player.name || '?'}</span>
+        <RoleBadges player={player} C={C} size={9} />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '3px 10px' }}>
         {on('status') && <Row label="Status" value={<span style={{ color: statusColor, fontWeight: 700 }}>{status}</span>} C={C} sz={sz} />}
         {on('faction') && player.faction && <Row label="Faction" value={player.faction} C={C} sz={sz} />}
         {on('grid') && player.grid && <Row label="Grid" value={<span style={{ fontFamily: 'monospace' }}>{player.grid}</span>} C={C} sz={sz} />}
@@ -88,13 +136,12 @@ function TrackerPlayerCard({ player, fields, C, sz }) {
         {on('heading') && player.heading != null && <Row label="Hdg" value={`${player.heading}° ${player.heading_dir || ''}`} C={C} sz={sz} />}
         {on('elevation') && player.elevation != null && <Row label="Elev" value={`${Math.round(player.elevation)}m`} C={C} sz={sz} />}
         {on('vehicle') && player.in_vehicle && <Row label="Vehicle" value={player.vehicle_type || 'yes'} C={C} sz={sz} />}
-        {on('squad') && player.squad_id >= 0 && <Row label="Squad" value={`${player.squad_name || player.squad_id}${player.is_squad_leader ? ' ★' : ''}`} C={C} sz={sz} />}
-        {on('location') && player.nearest_location?.name && <Row label="Near" value={`${player.nearest_location.name} (${player.nearest_location.dist_m < 0 ? '?' : Math.round(player.nearest_location.dist_m) + 'm'})`} C={C} sz={sz} />}
-        {on('uid') && player.uid && <Row label="UID" value={<span style={{ fontFamily: 'monospace', fontSize: 8 }}>{player.uid}</span>} C={C} sz={sz} />}
+        {on('squad') && player.squad_id >= 0 && <Row label="Squad" value={player.squad_name || `Sqd ${player.squad_id}`} C={C} sz={sz} />}
+        {on('location') && player.nearest_location?.name && <Row label="Near" value={`${player.nearest_location.name}${player.nearest_location.dist_m >= 0 ? ' (' + Math.round(player.nearest_location.dist_m) + 'm)' : ''}`} C={C} sz={sz} />}
+        {on('uid') && player.uid && <Row label="UID" value={<span style={{ fontFamily: 'monospace', fontSize: 9 }}>{player.uid}</span>} C={C} sz={sz} />}
       </div>
-
       {on('health') && player.health != null && (
-        <div style={{ marginTop: 6 }}>
+        <div style={{ marginTop: 8 }}>
           <HealthBar value={player.health} C={C} />
         </div>
       )}
@@ -535,18 +582,34 @@ function SettingsModal({ open, onClose, role, C, sz }) {
   )
 }
 
+const DENSITY = { S: 130, M: 170, L: 220 }
+
 export default function Tracker({ role }) {
   const { C, sz } = useT()
   const [data, setData] = useState(null)
   const [fields, setFields] = useState(TRACKER_FIELDS)
-  const [showFieldPicker, setShowFieldPicker] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showClear, setShowClear] = useState(false)
   const [clearing, setClearing] = useState(false)
-  const [view, setView] = useState('players')
   const [filterFaction, setFilterFaction] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
+  const [density, setDensity] = useState('S')
+  const [expandedCards, setExpandedCards] = useState(() => new Set())
+  const [floating, setFloating] = useState(() => { try { const s = localStorage.getItem('tracker-float'); return s ? JSON.parse(s) : {} } catch { return {} } })
+  const [hidden, setHidden] = useState(() => { try { const s = localStorage.getItem('tracker-hidden'); return s ? JSON.parse(s) : {} } catch { return {} } })
   const pollRef = useRef(null)
+
+  const detach = (id) => setFloating(p => { const n = { ...p, [id]: { x: 140 + Object.keys(p).length * 32, y: 90 + Object.keys(p).length * 32 } }; try { localStorage.setItem('tracker-float', JSON.stringify(n)) } catch {}; return n })
+  const dock   = (id) => setFloating(p => { const n = { ...p }; delete n[id]; try { localStorage.setItem('tracker-float', JSON.stringify(n)) } catch {}; return n })
+  const hide   = (id) => setHidden(p => { const n = { ...p, [id]: true }; try { localStorage.setItem('tracker-hidden', JSON.stringify(n)) } catch {}; return n })
+  const show   = (id) => setHidden(p => { const n = { ...p }; delete n[id]; try { localStorage.setItem('tracker-hidden', JSON.stringify(n)) } catch {}; return n })
+
+  const PanelCtl = ({ id }) => (
+    <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
+      <button onClick={() => detach(id)} title="Float panel" style={{ background: 'none', border: `1px solid ${C.blue}50`, cursor: 'pointer', color: C.blue, fontSize: 10, padding: '1px 5px', lineHeight: 1, borderRadius: 4 }}>⬡</button>
+      <button onClick={() => hide(id)} title="Hide panel (restore from bar above)" style={{ background: 'none', border: `1px solid ${C.border}`, cursor: 'pointer', color: C.textMuted, fontSize: 12, padding: '0 5px', lineHeight: 1.2, borderRadius: 4 }}>×</button>
+    </div>
+  )
 
   const isAdmin = ['owner', 'head_admin', 'admin'].includes(role)
 
@@ -574,6 +637,17 @@ export default function Tracker({ role }) {
 
   const toggleField = (id) => setFields(prev => prev.map(f => f.id === id ? { ...f, on: !f.on } : f))
 
+  const toggleCard = useCallback((uid) => {
+    setExpandedCards(prev => {
+      const next = new Set(prev)
+      if (next.has(uid)) next.delete(uid)
+      else next.add(uid)
+      return next
+    })
+  }, [])
+
+  const collapseAll = () => setExpandedCards(new Set())
+
   const snapshots = data?.snapshots || []
   const events = [...(data?.events || [])].reverse()
   const wiredUp = data?.wired_up
@@ -592,12 +666,65 @@ export default function Tracker({ role }) {
 
   const headerBadge = (() => {
     if (!serverRunning) return { color: '#f87171', bg: '#7f1d1d22', border: '#f8717140', dot: '#f87171', label: 'Server Offline', pulse: false }
-    if (!wiredUp)       return { color: '#fb923c', bg: '#7c2d1222', border: '#fb923c40', dot: '#fb923c', label: 'Server Running — Mod Not Connected', pulse: false }
+    if (!wiredUp)       return { color: '#fb923c', bg: '#7c2d1222', border: '#fb923c40', dot: '#fb923c', label: 'Mod Not Connected', pulse: false }
     return                    { color: '#4ade80', bg: '#14532d22', border: '#4ade8040', dot: '#4ade80', label: 'Live', pulse: true }
   })()
 
+  const cardMin = DENSITY[density]
+  const expandedAny = expandedCards.size > 0
+
+  const renderFieldsBody = () => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', padding: '8px' }}>
+      <span style={{ color: C.textMuted, fontSize: sz.stat - 1, textTransform: 'uppercase', letterSpacing: '0.04em', marginRight: 4 }}>Fields</span>
+      {fields.map(f => (
+        <button key={f.id} onClick={() => toggleField(f.id)} style={{ fontSize: sz.stat - 1, padding: '3px 8px', borderRadius: 4, border: `1px solid ${f.on ? C.accent + '50' : C.border}`, background: f.on ? C.accent + '15' : 'transparent', color: f.on ? C.accent : C.textMuted, cursor: 'pointer', fontWeight: f.on ? 700 : 400 }}>{f.label}</button>
+      ))}
+    </div>
+  )
+
+  const renderPlayersBody = () => (
+    <div style={{ padding: 8, height: '100%', overflow: 'auto' }}>
+      {filteredPlayers.length === 0
+        ? <div style={{ color: C.textMuted, fontSize: sz.base, textAlign: 'center', paddingTop: 48 }}>{wiredUp ? 'No players match filter.' : 'Waiting for mod to connect…'}</div>
+        : <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(${cardMin}px, 1fr))`, gridAutoRows: 'min-content', gap: 6 }}>
+            {filteredPlayers.map((p, i) => {
+              const cardId = p.uid || `__${i}`
+              return <TrackerPlayerCard key={cardId} player={p} fields={fields} expanded={expandedCards.has(cardId)} onToggle={() => toggleCard(cardId)} C={C} sz={sz} />
+            })}
+          </div>
+      }
+    </div>
+  )
+
+  const renderEventsBody = () => (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '8px 10px', gap: 2 }}>
+      {events.length === 0
+        ? <div style={{ color: C.textMuted, fontSize: sz.stat, padding: 12, textAlign: 'center' }}>{wiredUp ? 'No events yet' : 'Waiting…'}</div>
+        : events.map((ev, i) => <TrackerEventRow key={i} event={ev} C={C} sz={sz} />)
+      }
+    </div>
+  )
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 10 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 8 }}>
+      {/* Floating panel portals */}
+      {floating.fields && <FloatingPanel title="Fields" onDock={() => dock('fields')} defaultPos={floating.fields}>{renderFieldsBody()}</FloatingPanel>}
+      {floating.players && <FloatingPanel title={`Players (${filteredPlayers.length})`} onDock={() => dock('players')} defaultPos={floating.players}>{renderPlayersBody()}</FloatingPanel>}
+      {floating.events && <FloatingPanel title={`Events (${events.length})`} onDock={() => dock('events')} defaultPos={floating.events}>{renderEventsBody()}</FloatingPanel>}
+
+      {/* Hidden-panels restore bar */}
+      {Object.keys(hidden).length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', padding: '6px 10px', borderRadius: 6, background: C.bgInput, border: `1px solid ${C.border}` }}>
+          <span style={{ color: C.textMuted, fontSize: sz.stat - 1, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>Hidden:</span>
+          {Object.keys(hidden).map(id => (
+            <button key={id} onClick={() => show(id)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 5, background: C.accentBg, color: C.accent, border: `1px solid ${C.accent}30`, fontSize: sz.stat - 1, fontWeight: 700, cursor: 'pointer' }}>
+              {TRACKER_PANEL_LABELS[id] || id} <span style={{ opacity: 0.6, fontSize: 10 }}>↩</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Header row */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <h2 style={{ color: C.textBright, fontSize: sz.base + 4, fontWeight: 900, margin: 0 }}>Tracker</h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 8px', borderRadius: 5, background: headerBadge.bg, border: `1px solid ${headerBadge.border}` }}>
@@ -608,25 +735,19 @@ export default function Tracker({ role }) {
           <span style={{ color: C.textMuted, fontSize: sz.stat }}>
             {snapshots.length} players · <span style={{ color: '#4ade80' }}>{aliveCount} alive</span> · <span style={{ color: '#f87171' }}>{deadCount} dead</span>
           </span>
-          {data?.last_rx && <span style={{ color: C.textMuted, fontSize: sz.stat - 1 }}>last rx {fmtTs(data.last_rx)}</span>}
+          {data?.last_rx && <span style={{ color: C.textMuted, fontSize: sz.stat - 1 }}>rx {fmtTs(data.last_rx)}</span>}
         </>}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
-          <div style={{ display: 'flex', borderRadius: 6, border: `1px solid ${C.border}`, overflow: 'hidden' }}>
-            {['players', 'events'].map(v => (
-              <button key={v} onClick={() => setView(v)} style={{ fontSize: sz.stat, padding: '4px 12px', background: view === v ? C.accent + '20' : 'transparent', color: view === v ? C.accent : C.textMuted, border: 'none', cursor: 'pointer', fontWeight: view === v ? 700 : 400 }}>
-                {v === 'players' ? `Players (${filteredPlayers.length})` : `Events (${events.length})`}
-              </button>
-            ))}
-          </div>
-          {view === 'players' && (
-            <div style={{ position: 'relative' }}>
-              <button onClick={() => setShowFieldPicker(p => !p)} title="Toggle fields" style={{ fontSize: sz.stat, padding: '4px 10px', borderRadius: 5, border: `1px solid ${C.border}`, background: showFieldPicker ? C.bgInput : 'transparent', color: C.textDim, cursor: 'pointer' }}>⊞ Fields</button>
-              {showFieldPicker && (
-                <div style={{ position: 'absolute', right: 0, top: '100%', marginTop: 4, zIndex: 50, background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 8, padding: 8, minWidth: 180, boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}>
-                  {fields.map(f => <FieldToggle key={f.id} id={f.id} label={f.label} checked={f.on} onChange={() => toggleField(f.id)} C={C} sz={sz} />)}
-                </div>
-              )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, paddingRight: 4 }}>
+            <span style={{ color: C.textMuted, fontSize: sz.stat - 1 }}>Density</span>
+            <div style={{ display: 'flex', borderRadius: 5, border: `1px solid ${C.border}`, overflow: 'hidden' }}>
+              {Object.keys(DENSITY).map(d => (
+                <button key={d} onClick={() => setDensity(d)} style={{ fontSize: sz.stat - 1, padding: '3px 8px', background: density === d ? C.accent + '20' : 'transparent', color: density === d ? C.accent : C.textMuted, border: 'none', cursor: 'pointer', fontWeight: density === d ? 700 : 400 }}>{d}</button>
+              ))}
             </div>
+          </div>
+          {expandedAny && (
+            <button onClick={collapseAll} title="Collapse all expanded cards" style={{ fontSize: sz.stat - 1, padding: '3px 8px', borderRadius: 5, border: `1px solid ${C.border}`, background: 'transparent', color: C.textDim, cursor: 'pointer' }}>Collapse all</button>
           )}
           {isAdmin && (
             <>
@@ -652,36 +773,93 @@ export default function Tracker({ role }) {
         </div>
       </div>
 
-      {view === 'players' && factions.length > 1 && (
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+      {/* Inline field strip */}
+      {!floating.fields && !hidden.fields && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', padding: '4px 6px', background: C.bgInput + '40', borderRadius: 6, border: `1px solid ${C.border}` }}>
+          <span style={{ color: C.textMuted, fontSize: sz.stat - 1, textTransform: 'uppercase', letterSpacing: '0.04em', marginRight: 4 }}>Fields</span>
+          {fields.map(f => (
+            <button key={f.id} onClick={() => toggleField(f.id)}
+              style={{
+                fontSize: sz.stat - 1,
+                padding: '3px 8px',
+                borderRadius: 4,
+                border: `1px solid ${f.on ? C.accent + '50' : C.border}`,
+                background: f.on ? C.accent + '15' : 'transparent',
+                color: f.on ? C.accent : C.textMuted,
+                cursor: 'pointer',
+                fontWeight: f.on ? 700 : 400,
+                transition: 'all 120ms',
+              }}>{f.label}</button>
+          ))}
+          <div style={{ marginLeft: 'auto' }}><PanelCtl id="fields" /></div>
+        </div>
+      )}
+
+      {/* Filter strip — only when there's something to filter */}
+      {(factions.length > 1 || statuses.length > 1) && (
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           <span style={{ color: C.textMuted, fontSize: sz.stat - 1 }}>Filter:</span>
-          {['', ...factions].map(f => (
-            <button key={f || '__all'} onClick={() => setFilterFaction(f)} style={{ fontSize: sz.stat - 1, padding: '2px 8px', borderRadius: 4, border: `1px solid ${filterFaction === f ? C.accent + '60' : C.border}`, background: filterFaction === f ? C.accent + '15' : 'transparent', color: filterFaction === f ? C.accent : C.textMuted, cursor: 'pointer' }}>
-              {f || 'All'}
+          {factions.length > 1 && ['', ...factions].map(f => (
+            <button key={'f' + (f || '__all')} onClick={() => setFilterFaction(f)} style={{ fontSize: sz.stat - 1, padding: '2px 8px', borderRadius: 4, border: `1px solid ${filterFaction === f ? C.accent + '60' : C.border}`, background: filterFaction === f ? C.accent + '15' : 'transparent', color: filterFaction === f ? C.accent : C.textMuted, cursor: 'pointer' }}>
+              {f || 'All factions'}
             </button>
           ))}
           {statuses.length > 1 && ['', ...statuses].map(s => (
-            <button key={s || '__all_s'} onClick={() => setFilterStatus(s)} style={{ fontSize: sz.stat - 1, padding: '2px 8px', borderRadius: 4, border: `1px solid ${filterStatus === s ? C.accent + '60' : C.border}`, background: filterStatus === s ? C.accent + '15' : 'transparent', color: filterStatus === s ? C.accent : C.textMuted, cursor: 'pointer' }}>
+            <button key={'s' + (s || '__all')} onClick={() => setFilterStatus(s)} style={{ fontSize: sz.stat - 1, padding: '2px 8px', borderRadius: 4, border: `1px solid ${filterStatus === s ? C.accent + '60' : C.border}`, background: filterStatus === s ? C.accent + '15' : 'transparent', color: filterStatus === s ? C.accent : C.textMuted, cursor: 'pointer' }}>
               {s || 'All statuses'}
             </button>
           ))}
         </div>
       )}
 
-      <div style={{ flex: 1, overflow: 'auto' }}>
-        {view === 'players' && (
-          filteredPlayers.length === 0
-            ? <div style={{ color: C.textMuted, fontSize: sz.base, textAlign: 'center', paddingTop: 48 }}>{wiredUp ? 'No players match filter.' : 'Waiting for mod to connect…'}</div>
-            : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 8 }}>
-                {filteredPlayers.map((p, i) => <TrackerPlayerCard key={p.uid || i} player={p} fields={fields} C={C} sz={sz} />)}
-              </div>
+      {/* Main split: players grid (left) + events sidebar (right) */}
+      <div style={{ flex: 1, display: 'flex', gap: 8, minHeight: 0 }}>
+        {!floating.players && !hidden.players && (
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+              <span style={{ color: C.textMuted, fontSize: sz.stat - 1, textTransform: 'uppercase', letterSpacing: '0.05em', flex: 1 }}>Players ({filteredPlayers.length})</span>
+              <PanelCtl id="players" />
+            </div>
+            <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+              {filteredPlayers.length === 0
+                ? <div style={{ color: C.textMuted, fontSize: sz.base, textAlign: 'center', paddingTop: 48 }}>{wiredUp ? 'No players match filter.' : 'Waiting for mod to connect…'}</div>
+                : <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: `repeat(auto-fill, minmax(${cardMin}px, 1fr))`,
+                    gridAutoRows: 'min-content',
+                    gap: 6,
+                  }}>
+                    {filteredPlayers.map((p, i) => {
+                      const cardId = p.uid || `__${i}`
+                      return (
+                        <TrackerPlayerCard
+                          key={cardId}
+                          player={p}
+                          fields={fields}
+                          expanded={expandedCards.has(cardId)}
+                          onToggle={() => toggleCard(cardId)}
+                          C={C} sz={sz}
+                        />
+                      )
+                    })}
+                  </div>
+              }
+            </div>
+          </div>
         )}
-        {view === 'events' && (
-          events.length === 0
-            ? <div style={{ color: C.textMuted, fontSize: sz.base, textAlign: 'center', paddingTop: 48 }}>{wiredUp ? 'No events yet.' : 'Waiting for mod to connect…'}</div>
-            : <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {events.map((ev, i) => <TrackerEventRow key={i} event={ev} C={C} sz={sz} />)}
-              </div>
+        {!floating.events && !hidden.events && (
+          <div style={{ width: 280, flexShrink: 0, display: 'flex', flexDirection: 'column', background: C.bgInput + '40', border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 10px', minHeight: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+              <span style={{ color: C.textMuted, fontSize: sz.stat - 1, textTransform: 'uppercase', letterSpacing: '0.05em', flex: 1 }}>Events ({events.length})</span>
+              <PanelCtl id="events" />
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {events.length === 0
+                ? <div style={{ color: C.textMuted, fontSize: sz.stat, padding: 12, textAlign: 'center' }}>{wiredUp ? 'No events yet' : 'Waiting…'}</div>
+                : events.map((ev, i) => <TrackerEventRow key={i} event={ev} C={C} sz={sz} />)
+              }
+            </div>
+          </div>
         )}
       </div>
 
