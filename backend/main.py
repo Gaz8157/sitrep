@@ -4735,7 +4735,7 @@ async def _build_ws_index_bg():
         async def fetch_page(sort, page):
             async with sem:
                 try:
-                    async with httpx.AsyncClient(timeout=15, follow_redirects=True, verify=False) as c:
+                    async with httpx.AsyncClient(timeout=15, follow_redirects=True) as c:
                         r = await c.get(base_url, params={"page": page, "sort": sort})
                         r.raise_for_status()
                         raw = r.json()
@@ -4766,7 +4766,7 @@ async def _get_build_id() -> str:
     if _ws_build_id and time.time() - _ws_build_id_ts < _WS_BUILD_TTL:
         return _ws_build_id
     try:
-        async with httpx.AsyncClient(timeout=10, follow_redirects=True, verify=False) as c:
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as c:
             r = await c.get("https://reforger.armaplatform.com/workshop")
             m = re.search(r'"buildId":"([^"]+)"', r.text)
             if m:
@@ -4871,7 +4871,7 @@ async def workshop_search(request: Request, q: str = "", page: int = 1, sort: st
         params = {"page": page, "sort": sort}
         if q: params["search"] = q
         url = f"https://reforger.armaplatform.com/_next/data/{build_id}/workshop.json"
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True, verify=False) as c:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as c:
             r = await c.get(url, params=params)
             r.raise_for_status()
             raw = r.json()
@@ -4896,7 +4896,7 @@ async def workshop_mod_detail(request: Request, mod_id: str):
     try:
         build_id = await _get_build_id()
         url = f"https://reforger.armaplatform.com/_next/data/{build_id}/workshop/{mod_id}.json"
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True, verify=False) as c:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as c:
             r = await c.get(url)
             r.raise_for_status()
             raw = r.json()
