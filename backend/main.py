@@ -2593,8 +2593,8 @@ async def server_action(action: str, request: Request):
                  "+app_update", "1874900", "validate", "+quit"],
                 capture_output=True, text=True, timeout=600)
             if r.returncode != 0:
-                return {"error": f"SteamCMD failed (exit {r.returncode})", "output": r.stderr[-500:]}
-            return {"message": "Update complete", "output": r.stdout[-500:]}
+                return {"error": f"SteamCMD failed (exit {r.returncode})", "output": (r.stderr or r.stdout)[-2000:]}
+            return {"message": "Update complete", "output": r.stdout[-2000:]}
         except subprocess.TimeoutExpired:
             return {"error": "Update timed out after 10 minutes"}
         except Exception as e:
