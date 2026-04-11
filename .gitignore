@@ -1,8 +1,7 @@
 # Runtime data — never commit these
 backend/data/
 backend/ws_index.json
-servers/*/data/
-servers/*/profile/
+servers/
 
 # Python
 backend/venv/
@@ -24,6 +23,7 @@ frontend/dist/
 # Backup files
 *.bak
 *.tmp
+backups/
 
 # Private / dev-only content
 MisfitsAdminTools/
@@ -31,6 +31,8 @@ ServerAdminTools/
 docs/superpowers/
 .superpowers/
 SITREP_HANDOFF.md
+scraper/
+docs/QUALITY_REPORT.md
 
 # OS
 .DS_Store
