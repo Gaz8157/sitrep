@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useT } from '../ctx.jsx'
 import { API, post, authHeaders } from '../api.js'
 import { Badge, Btn, Input, Modal } from '../components/ui.jsx'
+import { ROLE_COLORS } from '../constants.js'
 import { ProfileModal } from './Profile.jsx'
 function NewServerCard({servers, onCreated, toast}) {
   const {C, sz} = useT()

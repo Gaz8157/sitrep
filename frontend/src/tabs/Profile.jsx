@@ -3,6 +3,7 @@ import { useT } from '../ctx.jsx'
 import { API, put, del, on401, getHeaders } from '../api.js'
 import { useFetchOnce } from '../hooks.js'
 import { Badge, Btn, Toggle } from '../components/ui.jsx'
+import { ROLE_COLORS, THEMES } from '../constants.js'
 function ProfileTab({authUser, userProfile, setUserProfile, toast}) {
   const {C, sz} = useT()
   const [displayName, setDisplayName] = useState(userProfile?.display_name || '')
