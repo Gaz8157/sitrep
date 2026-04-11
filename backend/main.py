@@ -32,6 +32,15 @@ if _env_path.exists():
             _k, _v = _line.split('=', 1)
             os.environ.setdefault(_k.strip(), _v.strip().strip('"').strip("'"))
 
+import logging
+logger = logging.getLogger("sitrep")
+if not logger.handlers:
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+    logger.addHandler(_h)
+    logger.setLevel(os.environ.get("LOG_LEVEL", "INFO").upper())
+    logger.propagate = False
+
 # Single source of truth for the panel's public URL.
 # Set PANEL_URL in /opt/panel/.env — no hardcoded IPs anywhere.
 PANEL_URL = os.environ.get("PANEL_URL", "http://localhost:8000").rstrip("/")
@@ -713,7 +722,7 @@ async def auth_middleware(request: Request, call_next):
         if _u and iat < _u.get("tokens_valid_after", 0):
             return JSONResponse({"error": "Session expired — please log in again"}, status_code=401)
     except Exception as e:
-        print(f"[WARN] Token revocation check failed: {e}")
+        logger.warning("Token revocation check failed: %s", e)
         return JSONResponse({"error": "Authentication check failed"}, status_code=401)
     # Panel-level routes (server list, provision) handle server context themselves
     if path.startswith("/api/servers"):
@@ -920,21 +929,20 @@ def _log_startup_diagnostics() -> None:
     try:
         result = _run_diagnostics()
     except Exception as e:
-        print(f"[SITREP] diagnostics failed to run: {e}", file=sys.stderr, flush=True)
+        logger.error("Diagnostics failed to run: %s", e)
         return
     if result["overall"] == "ok":
-        print(f"[SITREP] diagnostics OK — {len(result['checks'])} checks passed", flush=True)
+        logger.info("Diagnostics OK — %d checks passed", len(result['checks']))
         return
     sev = "WARN" if result["overall"] == "warn" else "FAIL"
-    print(f"[SITREP] diagnostics {sev}: {result['fails']} fail, {result['warns']} warn, "
-          f"{len(result['checks'])} total", file=sys.stderr, flush=True)
+    logger.warning("Diagnostics %s: %d fail, %d warn, %d total", sev, result['fails'], result['warns'], len(result['checks']))
     for c in result["checks"]:
         if c["status"] == "ok":
             continue
-        print(f"[SITREP] {c['status'].upper():4s} {c['id']}: {c['label']} — {c['detail']}",
-              file=sys.stderr, flush=True)
+        _lvl = logger.warning if c['status'] == 'fail' else logger.info
+        _lvl("%-4s %s: %s — %s", c['status'].upper(), c['id'], c['label'], c['detail'])
         if c.get("fix"):
-            print(f"[SITREP]      fix: {c['fix']}", file=sys.stderr, flush=True)
+            logger.warning("     fix: %s", c['fix'])
 
 _log_startup_diagnostics()
 
@@ -1368,7 +1376,7 @@ def _send_email(to_addr: str, subject: str, text_body: str, html_body: str = "")
             srv.sendmail(cfg["from"], to_addr, msg.as_string())
         return True, ""
     except Exception as e:
-        print(f"[SITREP] SMTP send failed: {e}")
+        logger.error("SMTP send failed: %s", e)
         return False, str(e)
 
 @app.post("/api/auth/forgot-password")
@@ -2243,7 +2251,7 @@ async def setup_complete(body: SetupRequest, request: Request, response: Respons
         user_obj["email"] = email
     data["users"].append(user_obj)
     save_panel_users(data)
-    print(f"[SITREP] Owner account created via setup wizard: {username}")
+    logger.info("Owner account created via setup wizard: %s", username)
     set_auth_cookies(response, username, "owner", remember=True)
     return {"username": username, "role": "owner"}
 
@@ -5901,7 +5909,7 @@ async def tracker_track(request: Request):
     try:
         payload = json.loads(raw)
     except Exception as e:
-        print(f"[TRACKER] /track parse error: {e!r}  content-type={ct!r}  raw_head={raw[:200]!r}")
+        logger.warning("[tracker] /track parse error: %r  content-type=%r  raw_head=%r", e, ct, raw[:200])
         return JSONResponse({"error": "Invalid JSON", "detail": str(e)}, status_code=400)
     mod_id = (payload.get("server_id") or "").strip()
     if not mod_id:
@@ -5948,7 +5956,7 @@ async def tracker_event(request: Request):
     try:
         payload = json.loads(raw)
     except Exception as e:
-        print(f"[TRACKER] /event parse error: {e!r}  content-type={ct!r}  raw_head={raw[:200]!r}")
+        logger.warning("[tracker] /event parse error: %r  content-type=%r  raw_head=%r", e, ct, raw[:200])
         return JSONResponse({"error": "Invalid JSON", "detail": str(e)}, status_code=400)
     mod_id = (payload.get("server_id") or "").strip()
     if not mod_id:
