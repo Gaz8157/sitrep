@@ -461,6 +461,24 @@ _TRACKER_FORWARD_STATUS: dict = {}
 _TRACKER_SETTINGS_LOCK = Lock()
 _TRACKER_DB_LOCK = Lock()
 _TRACKER_STATE_LOCK = Lock()
+
+class _TrackerWsManager:
+    def __init__(self):
+        self._conns: list = []
+    async def connect(self, ws: WebSocket):
+        await ws.accept()
+        self._conns.append(ws)
+    def disconnect(self, ws: WebSocket):
+        self._conns = [c for c in self._conns if c is not ws]
+    async def broadcast(self, msg: dict):
+        dead = []
+        for ws in self._conns:
+            try: await ws.send_json(msg)
+            except Exception: dead.append(ws)
+        for ws in dead: self.disconnect(ws)
+
+_tracker_ws = _TrackerWsManager()
+
 _TRACKER_DEFAULT_SETTINGS: dict = {
     "events_cap": 100,
     "snapshot_ttl_sec": 0,
@@ -495,6 +513,16 @@ def _tracker_events_deque(mod_id: str) -> deque:
         dq = deque(maxlen=_tracker_events_cap())
         _TRACKER_RECENT_EVENTS[mod_id] = dq
     return dq
+
+def _prune_stale_players(mod_id: str):
+    ttl = _tracker_load_settings().get("snapshot_ttl_sec", 0)
+    if ttl <= 0:
+        return
+    cutoff = time.time() - ttl
+    with _TRACKER_STATE_LOCK:
+        slot = _TRACKER_LATEST_SNAPSHOTS.get(mod_id, {})
+        for uid in [u for u, p in slot.items() if p.get("_ts", 0) < cutoff]:
+            del slot[uid]
 
 def _tracker_panel_mod_id(request: Request) -> str:
     srv = getattr(request.state, "server", None) or {}
@@ -5923,10 +5951,23 @@ async def tracker_track(request: Request):
             if uid:
                 slot[uid] = {**p, "_server_id": mod_id, "_ts": ts}
         _TRACKER_LAST_RX[mod_id] = time.time()
+    _prune_stale_players(mod_id)
     settings = _tracker_load_settings()
     if settings["sqlite_enabled"]:
         _tracker_db_init()
         await asyncio.to_thread(_tracker_db_write_snapshot, payload, settings)
+    with _TRACKER_STATE_LOCK:
+        snapshot_list = list(_TRACKER_LATEST_SNAPSHOTS.get(mod_id, {}).values())
+    asyncio.create_task(_tracker_ws.broadcast({
+        "type": "snapshot",
+        "server_id": mod_id,
+        "ts": ts,
+        "players": snapshot_list,
+        "players_total": payload.get("players_total", len(players)),
+        "players_alive": payload.get("players_alive", 0),
+        "map": payload.get("map", ""),
+        "session_time": payload.get("session_time", 0),
+    }))
     asyncio.create_task(_tracker_forward(payload, "snapshot"))
     return {"ok": True}
 
@@ -5961,13 +6002,19 @@ async def tracker_event(request: Request):
     mod_id = (payload.get("server_id") or "").strip()
     if not mod_id:
         return JSONResponse({"error": "payload missing server_id"}, status_code=400)
+    event_entry = {**payload, "_rx_ts": time.time()}
     with _TRACKER_STATE_LOCK:
-        _tracker_events_deque(mod_id).append({**payload, "_rx_ts": time.time()})
+        _tracker_events_deque(mod_id).append(event_entry)
         _TRACKER_LAST_RX[mod_id] = time.time()
     settings = _tracker_load_settings()
     if settings["sqlite_enabled"]:
         _tracker_db_init()
         await asyncio.to_thread(_tracker_db_write_event, payload)
+    asyncio.create_task(_tracker_ws.broadcast({
+        "type": "event",
+        "server_id": mod_id,
+        "event": event_entry,
+    }))
     asyncio.create_task(_tracker_forward(payload, payload.get("event_type", "event")))
     return {"ok": True}
 
@@ -6262,6 +6309,34 @@ async def tracker_key_set(request: Request):
     masked = "*" * max(0, len(new_key) - 6) + new_key[-6:]
     return {"ok": True, "masked": masked}
 
+
+@app.websocket("/ws/tracker")
+async def ws_tracker(ws: WebSocket):
+    token = ws.cookies.get("sitrep-access", "")
+    pl = decode_token(token) if token else None
+    if not pl or ROLE_ORDER.get(pl.get("role", ""), 0) < ROLE_ORDER.get("admin", 0):
+        await ws.close(code=4001)
+        return
+    await _tracker_ws.connect(ws)
+    try:
+        now = time.time()
+        with _TRACKER_STATE_LOCK:
+            all_snaps = [p for slot in _TRACKER_LATEST_SNAPSHOTS.values() for p in slot.values()]
+            all_evts  = [e for dq in _TRACKER_RECENT_EVENTS.values() for e in dq]
+            last_rx   = max(_TRACKER_LAST_RX.values(), default=0.0)
+        wired_up = bool(last_rx > 0 and (now - last_rx) < 90)
+        await ws.send_json({
+            "type":      "init",
+            "snapshots": all_snaps,
+            "events":    all_evts,
+            "wired_up":  wired_up,
+        })
+        while True:
+            await ws.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        _tracker_ws.disconnect(ws)
 
 frontend_dist = Path("/opt/panel/frontend/dist")
 if frontend_dist.exists():

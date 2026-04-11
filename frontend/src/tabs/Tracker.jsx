@@ -839,6 +839,9 @@ export default function Tracker({ role }) {
   const eventsResizeRef = useRef(null)
   const mainSplitRef = useRef(null)
   const pollRef = useRef(null)
+  const wsRef = useRef(null)
+  const wsFailed = useRef(false)
+  const mountedRef = useRef(true)
 
   const persistDensity = (d) => { setDensity(d); try { localStorage.setItem('tracker-density', d) } catch {} }
   const persistEventsPos = (p) => { setEventsDockPos(p); try { localStorage.setItem('tracker-events-pos', p) } catch {} }
@@ -865,11 +868,51 @@ export default function Tracker({ role }) {
     } catch {}
   }, [])
 
+  const connectWs = useCallback(() => {
+    if (!mountedRef.current) return
+    if (wsRef.current?.readyState === WebSocket.OPEN) return
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
+    const ws = new WebSocket(`${proto}://${window.location.host}/ws/tracker`)
+    wsRef.current = ws
+    ws.onopen = () => { wsFailed.current = false }
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data)
+        if (msg.type === 'snapshot') {
+          setData(prev => {
+            if (!prev?.mod_server_id) return prev
+            if (msg.server_id && prev.mod_server_id !== msg.server_id) return prev
+            const map = Object.fromEntries((prev.snapshots || []).map(p => [p.uid || p.name, p]))
+            for (const p of (msg.players || [])) {
+              const key = p.uid || p.name
+              if (key) map[key] = p
+            }
+            return { ...prev, snapshots: Object.values(map) }
+          })
+        } else if (msg.type === 'event') {
+          setData(prev => {
+            if (!prev?.mod_server_id) return prev
+            if (msg.server_id && prev.mod_server_id !== msg.server_id) return prev
+            return { ...prev, events: [...(prev.events || []), msg.event].slice(-200) }
+          })
+        }
+      } catch {}
+    }
+    ws.onerror = () => { wsFailed.current = true }
+    ws.onclose = () => { if (mountedRef.current) setTimeout(connectWs, 5000) }
+  }, [])
+
   useEffect(() => {
+    mountedRef.current = true
     load()
-    pollRef.current = setInterval(load, 5000)
-    return () => clearInterval(pollRef.current)
-  }, [load])
+    connectWs()
+    pollRef.current = setInterval(load, 15000)
+    return () => {
+      mountedRef.current = false
+      clearInterval(pollRef.current)
+      wsRef.current?.close()
+    }
+  }, [load, connectWs])
 
   const toggleField = (id) => setFields(prev => prev.map(f => f.id === id ? { ...f, on: !f.on } : f))
 
