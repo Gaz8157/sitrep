@@ -427,6 +427,130 @@ _LOGIN_MAX_ATTEMPTS = 5
 _LOGIN_WINDOW_SECONDS = 300   # 5 minutes
 _LOGIN_LOCKOUT_SECONDS = 900  # 15 minutes
 
+# === TRACKER STATE ===
+TRACKER_DB = PANEL_DATA / "tracker.db"
+TRACKER_SETTINGS_FILE = PANEL_DATA / "tracker_settings.json"
+PLAYERTRACKER_API_KEY = os.environ.get("PLAYERTRACKER_API_KEY", "")
+
+_TRACKER_LATEST_SNAPSHOTS: dict = {}
+_TRACKER_RECENT_EVENTS: deque = deque(maxlen=100)
+_TRACKER_LAST_RX: float = 0.0
+_TRACKER_FORWARD_STATUS: dict = {}
+_TRACKER_SETTINGS_LOCK = Lock()
+_TRACKER_DB_LOCK = Lock()
+_TRACKER_DEFAULT_SETTINGS: dict = {
+    "events_cap": 100,
+    "snapshot_ttl_sec": 0,
+    "sqlite_enabled": False,
+    "sqlite_retention_days": 30,
+    "forward_destinations": [],
+}
+
+def _tracker_load_settings() -> dict:
+    try:
+        raw = json.loads(TRACKER_SETTINGS_FILE.read_text())
+        merged = dict(_TRACKER_DEFAULT_SETTINGS)
+        merged.update({k: v for k, v in raw.items() if k in _TRACKER_DEFAULT_SETTINGS})
+        return merged
+    except Exception:
+        return dict(_TRACKER_DEFAULT_SETTINGS)
+
+def _tracker_save_settings(s: dict):
+    tmp = TRACKER_SETTINGS_FILE.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(s, indent=2))
+    tmp.replace(TRACKER_SETTINGS_FILE)
+
+def _tracker_check_key(request: Request) -> bool:
+    key = request.headers.get("X-Api-Key", "")
+    return bool(PLAYERTRACKER_API_KEY and key == PLAYERTRACKER_API_KEY)
+
+def _tracker_db_init():
+    if not _tracker_load_settings()["sqlite_enabled"]:
+        return
+    with _TRACKER_DB_LOCK:
+        conn = sqlite3.connect(TRACKER_DB)
+        try:
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS tr_snapshots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    server_id TEXT, ts INTEGER, session_time INTEGER,
+                    players_total INTEGER, players_alive INTEGER,
+                    map TEXT, players_json TEXT
+                );
+                CREATE INDEX IF NOT EXISTS ix_snap_ts ON tr_snapshots(ts);
+                CREATE INDEX IF NOT EXISTS ix_snap_srv ON tr_snapshots(server_id);
+                CREATE TABLE IF NOT EXISTS tr_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    server_id TEXT, ts INTEGER, event_type TEXT, data_json TEXT
+                );
+                CREATE INDEX IF NOT EXISTS ix_ev_ts ON tr_events(ts);
+                CREATE INDEX IF NOT EXISTS ix_ev_type ON tr_events(event_type);
+                CREATE INDEX IF NOT EXISTS ix_ev_srv ON tr_events(server_id);
+            """)
+            conn.commit()
+        finally:
+            conn.close()
+
+def _tracker_db_prune(retention_days: int):
+    cutoff = int(time.time()) - retention_days * 86400
+    with _TRACKER_DB_LOCK:
+        conn = sqlite3.connect(TRACKER_DB)
+        try:
+            conn.execute("DELETE FROM tr_snapshots WHERE ts < ?", (cutoff,))
+            conn.execute("DELETE FROM tr_events WHERE ts < ?", (cutoff,))
+            conn.commit()
+        finally:
+            conn.close()
+
+async def _tracker_forward(payload: dict, kind: str):
+    settings = _tracker_load_settings()
+    dests = settings.get("forward_destinations", [])
+    for dest in dests:
+        if not dest.get("enabled", True):
+            continue
+        name = dest.get("name", "unnamed")
+        event_types = dest.get("event_types", [])
+        if event_types and kind not in event_types:
+            continue
+        srv_glob = dest.get("server_id_glob", "")
+        if srv_glob and srv_glob != "*":
+            import fnmatch
+            if not fnmatch.fnmatch(payload.get("server_id", ""), srv_glob):
+                continue
+        asyncio.create_task(_tracker_send_dest(dest, payload, kind))
+
+async def _tracker_send_dest(dest: dict, payload: dict, kind: str):
+    name = dest.get("name", "unnamed")
+    url = dest.get("url", "")
+    method = dest.get("method", "POST").upper()
+    headers = dict(dest.get("headers", {}))
+    timeout = float(dest.get("timeout_sec", 10))
+    retries = int(dest.get("retry_count", 0))
+    backoff = float(dest.get("retry_backoff_sec", 2))
+    template = dest.get("transform_template", "")
+    ts = int(time.time())
+    if template:
+        body = template.replace("{{payload}}", json.dumps(payload)).replace("{{kind}}", kind).replace("{{ts}}", str(ts))
+        try:
+            body_data = json.loads(body)
+        except Exception:
+            body_data = {"payload": payload, "kind": kind, "ts": ts}
+    else:
+        body_data = {"kind": kind, "ts": ts, "data": payload}
+    last_err = ""
+    for attempt in range(max(1, retries + 1)):
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as c:
+                fn = c.post if method == "POST" else c.put
+                r = await fn(url, json=body_data, headers=headers)
+                _TRACKER_FORWARD_STATUS[name] = {"ts": ts, "status": r.status_code, "ok": r.is_success}
+                return
+        except Exception as e:
+            last_err = str(e)
+            if attempt < retries:
+                await asyncio.sleep(backoff)
+    _TRACKER_FORWARD_STATUS[name] = {"ts": ts, "status": 0, "ok": False, "error": last_err}
+
 def _clean_attempts(ip: str):
     now = time.time()
     _login_attempts[ip] = [t for t in _login_attempts.get(ip, []) if now - t < _LOGIN_LOCKOUT_SECONDS]
@@ -502,6 +626,14 @@ async def auth_middleware(request: Request, call_next):
                     "/api/auth/refresh", "/api/auth/logout",
                     "/api/setup/status", "/api/setup/complete"}
     if not path.startswith("/api") or path in PUBLIC_PATHS:
+        return await call_next(request)
+    if path.startswith("/api/tracker/"):
+        token = request.cookies.get("sitrep-access", "")
+        if token:
+            _pl = decode_token(token)
+            if _pl and _pl.get("sub") and _pl.get("role") in ROLE_ORDER:
+                request.state.user = {"username": _pl["sub"], "role": _pl["role"]}
+        request.state.server = None
         return await call_next(request)
     token = request.cookies.get("sitrep-access", "")
     payload = decode_token(token) if token else None
@@ -5161,6 +5293,268 @@ async def stats_player_history(request: Request):
         count = sum(1 for r in rows if int(r['connect_ts']) < h_end and int(r['disconnect_ts']) > h_start)
         hours.append({"ts": h_start, "count": count})
     return {"history": hours}
+
+
+# === TRACKER ENDPOINTS ===
+
+@app.get("/api/tracker/status")
+async def tracker_status():
+    settings = _tracker_load_settings()
+    return {
+        "wired_up": bool(_TRACKER_LAST_RX > 0),
+        "last_rx": _TRACKER_LAST_RX or None,
+        "snapshot_count": len(_TRACKER_LATEST_SNAPSHOTS),
+        "event_count": len(_TRACKER_RECENT_EVENTS),
+        "sqlite_enabled": settings["sqlite_enabled"],
+        "key_configured": bool(PLAYERTRACKER_API_KEY),
+    }
+
+@app.post("/api/tracker/track")
+async def tracker_track(request: Request):
+    global _TRACKER_LAST_RX
+    if not _tracker_check_key(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    ct = request.headers.get("content-type", "")
+    raw = await request.body()
+    try:
+        payload = json.loads(raw)
+    except Exception as e:
+        print(f"[TRACKER] /track parse error: {e!r}  content-type={ct!r}  raw_head={raw[:200]!r}")
+        return JSONResponse({"error": "Invalid JSON", "detail": str(e)}, status_code=400)
+    players = payload.get("players", [])
+    for p in players:
+        uid = p.get("uid") or p.get("name", "")
+        if uid:
+            _TRACKER_LATEST_SNAPSHOTS[uid] = {**p, "_server_id": payload.get("server_id", ""), "_ts": payload.get("timestamp", int(time.time()))}
+    _TRACKER_LAST_RX = time.time()
+    settings = _tracker_load_settings()
+    if settings["sqlite_enabled"]:
+        _tracker_db_init()
+        await asyncio.to_thread(_tracker_db_write_snapshot, payload, settings)
+    asyncio.create_task(_tracker_forward(payload, "snapshot"))
+    return {"ok": True}
+
+def _tracker_db_write_snapshot(payload: dict, settings: dict):
+    with _TRACKER_DB_LOCK:
+        conn = sqlite3.connect(TRACKER_DB)
+        try:
+            conn.execute(
+                "INSERT INTO tr_snapshots (server_id,ts,session_time,players_total,players_alive,map,players_json) VALUES (?,?,?,?,?,?,?)",
+                (payload.get("server_id",""), payload.get("timestamp", int(time.time())),
+                 payload.get("session_time",0), payload.get("players_total",0),
+                 payload.get("players_alive",0), payload.get("map",""),
+                 json.dumps(payload.get("players",[])))
+            )
+            conn.commit()
+            if settings["sqlite_retention_days"] > 0:
+                _tracker_db_prune(settings["sqlite_retention_days"])
+        finally:
+            conn.close()
+
+@app.post("/api/tracker/event")
+async def tracker_event(request: Request):
+    global _TRACKER_LAST_RX
+    if not _tracker_check_key(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    ct = request.headers.get("content-type", "")
+    raw = await request.body()
+    try:
+        payload = json.loads(raw)
+    except Exception as e:
+        print(f"[TRACKER] /event parse error: {e!r}  content-type={ct!r}  raw_head={raw[:200]!r}")
+        return JSONResponse({"error": "Invalid JSON", "detail": str(e)}, status_code=400)
+    _TRACKER_RECENT_EVENTS.append({**payload, "_rx_ts": time.time()})
+    _TRACKER_LAST_RX = time.time()
+    settings = _tracker_load_settings()
+    if settings["sqlite_enabled"]:
+        _tracker_db_init()
+        await asyncio.to_thread(_tracker_db_write_event, payload)
+    asyncio.create_task(_tracker_forward(payload, payload.get("event_type", "event")))
+    return {"ok": True}
+
+def _tracker_db_write_event(payload: dict):
+    with _TRACKER_DB_LOCK:
+        conn = sqlite3.connect(TRACKER_DB)
+        try:
+            conn.execute(
+                "INSERT INTO tr_events (server_id,ts,event_type,data_json) VALUES (?,?,?,?)",
+                (payload.get("server_id",""), payload.get("timestamp", int(time.time())),
+                 payload.get("event_type","unknown"), json.dumps(payload.get("data",{})))
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+@app.get("/api/tracker/debug")
+async def tracker_debug(request: Request):
+    key_ok = _tracker_check_key(request)
+    role_ok = ROLE_ORDER.get(current_user(request).get("role",""), 0) >= ROLE_ORDER.get("admin", 0)
+    if not key_ok and not role_ok:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    return {
+        "wired_up": bool(_TRACKER_LAST_RX > 0),
+        "last_rx": _TRACKER_LAST_RX or None,
+        "snapshots": list(_TRACKER_LATEST_SNAPSHOTS.values()),
+        "events": list(_TRACKER_RECENT_EVENTS),
+        "forward_status": dict(_TRACKER_FORWARD_STATUS),
+        "key_configured": bool(PLAYERTRACKER_API_KEY),
+    }
+
+@app.get("/api/tracker/settings")
+async def tracker_get_settings(request: Request):
+    denied = require_role(request, "admin")
+    if denied: return denied
+    return _tracker_load_settings()
+
+@app.put("/api/tracker/settings")
+async def tracker_put_settings(request: Request):
+    denied = require_role(request, "admin")
+    if denied: return denied
+    body = await request.json()
+    with _TRACKER_SETTINGS_LOCK:
+        current = _tracker_load_settings()
+        for k in ("events_cap","snapshot_ttl_sec","sqlite_enabled","sqlite_retention_days","forward_destinations"):
+            if k in body:
+                current[k] = body[k]
+        if "events_cap" in body:
+            global _TRACKER_RECENT_EVENTS
+            new_cap = max(1, int(body["events_cap"]))
+            old_events = list(_TRACKER_RECENT_EVENTS)
+            _TRACKER_RECENT_EVENTS = deque(old_events[-new_cap:], maxlen=new_cap)
+        _tracker_save_settings(current)
+        if current["sqlite_enabled"]:
+            _tracker_db_init()
+    return {"ok": True}
+
+@app.post("/api/tracker/clear")
+async def tracker_clear(request: Request):
+    denied = require_role(request, "admin")
+    if denied: return denied
+    body = await request.json()
+    target = body.get("target", "all")
+    if target in ("snapshots", "all"):
+        _TRACKER_LATEST_SNAPSHOTS.clear()
+    if target in ("events", "all"):
+        _TRACKER_RECENT_EVENTS.clear()
+    if target in ("sqlite", "all"):
+        settings = _tracker_load_settings()
+        if settings["sqlite_enabled"] and TRACKER_DB.exists():
+            await asyncio.to_thread(_tracker_sqlite_wipe)
+    return {"ok": True, "cleared": target}
+
+def _tracker_sqlite_wipe():
+    with _TRACKER_DB_LOCK:
+        conn = sqlite3.connect(TRACKER_DB)
+        try:
+            conn.execute("DELETE FROM tr_snapshots")
+            conn.execute("DELETE FROM tr_events")
+            conn.commit()
+        finally:
+            conn.close()
+
+@app.get("/api/tracker/forward/status")
+async def tracker_forward_status(request: Request):
+    denied = require_role(request, "admin")
+    if denied: return denied
+    return {"destinations": dict(_TRACKER_FORWARD_STATUS)}
+
+@app.post("/api/tracker/forward/test")
+async def tracker_forward_test(request: Request):
+    denied = require_role(request, "admin")
+    if denied: return denied
+    body = await request.json()
+    dest = body.get("destination", {})
+    test_payload = {"server_id": "test", "timestamp": int(time.time()), "players_total": 0, "players": []}
+    await _tracker_send_dest(dest, test_payload, "test")
+    name = dest.get("name", "unnamed")
+    return {"ok": True, "result": _TRACKER_FORWARD_STATUS.get(name)}
+
+@app.get("/api/tracker/history/events")
+async def tracker_history_events(request: Request, limit: int = 200, offset: int = 0, event_type: str = ""):
+    denied = require_role(request, "admin")
+    if denied: return denied
+    settings = _tracker_load_settings()
+    if not settings["sqlite_enabled"] or not TRACKER_DB.exists():
+        return {"events": [], "total": 0, "sqlite_enabled": False}
+    def _query():
+        with _TRACKER_DB_LOCK:
+            conn = sqlite3.connect(TRACKER_DB)
+            conn.row_factory = sqlite3.Row
+            try:
+                base = "FROM tr_events"
+                params: list = []
+                if event_type:
+                    base += " WHERE event_type=?"
+                    params.append(event_type)
+                total = conn.execute(f"SELECT COUNT(*) {base}", params).fetchone()[0]
+                rows = conn.execute(f"SELECT * {base} ORDER BY ts DESC LIMIT ? OFFSET ?", params + [limit, offset]).fetchall()
+                return total, [dict(r) for r in rows]
+            finally:
+                conn.close()
+    total, rows = await asyncio.to_thread(_query)
+    return {"events": rows, "total": total, "sqlite_enabled": True}
+
+@app.get("/api/tracker/history/snapshots")
+async def tracker_history_snapshots(request: Request, limit: int = 100, offset: int = 0, server_id: str = ""):
+    denied = require_role(request, "admin")
+    if denied: return denied
+    settings = _tracker_load_settings()
+    if not settings["sqlite_enabled"] or not TRACKER_DB.exists():
+        return {"snapshots": [], "total": 0, "sqlite_enabled": False}
+    def _query():
+        with _TRACKER_DB_LOCK:
+            conn = sqlite3.connect(TRACKER_DB)
+            conn.row_factory = sqlite3.Row
+            try:
+                base = "FROM tr_snapshots"
+                params: list = []
+                if server_id:
+                    base += " WHERE server_id=?"
+                    params.append(server_id)
+                total = conn.execute(f"SELECT COUNT(*) {base}", params).fetchone()[0]
+                rows = conn.execute(f"SELECT id,server_id,ts,session_time,players_total,players_alive,map {base} ORDER BY ts DESC LIMIT ? OFFSET ?", params + [limit, offset]).fetchall()
+                return total, [dict(r) for r in rows]
+            finally:
+                conn.close()
+    total, rows = await asyncio.to_thread(_query)
+    return {"snapshots": rows, "total": total, "sqlite_enabled": True}
+
+@app.get("/api/tracker/key")
+async def tracker_key_get(request: Request):
+    denied = require_role(request, "admin")
+    if denied: return denied
+    key = PLAYERTRACKER_API_KEY
+    if not key:
+        return {"key_configured": False, "masked": None}
+    masked = "*" * max(0, len(key) - 6) + key[-6:] if len(key) > 6 else "***"
+    return {"key_configured": True, "masked": masked}
+
+@app.get("/api/tracker/key/reveal")
+async def tracker_key_reveal(request: Request):
+    denied = require_role(request, "owner")
+    if denied: return denied
+    return {"key": PLAYERTRACKER_API_KEY}
+
+@app.post("/api/tracker/key/rotate")
+async def tracker_key_rotate(request: Request):
+    global PLAYERTRACKER_API_KEY
+    denied = require_role(request, "owner")
+    if denied: return denied
+    new_key = secrets.token_hex(20)
+    PLAYERTRACKER_API_KEY = new_key
+    lines = []
+    if _env_path.exists():
+        for line in _env_path.read_text().splitlines():
+            if line.strip().startswith("PLAYERTRACKER_API_KEY="):
+                continue
+            lines.append(line)
+    lines.append(f"PLAYERTRACKER_API_KEY={new_key}")
+    tmp = _env_path.with_suffix(".env.tmp")
+    tmp.write_text("\n".join(lines) + "\n")
+    tmp.replace(_env_path)
+    os.environ["PLAYERTRACKER_API_KEY"] = new_key
+    masked = "*" * max(0, len(new_key) - 6) + new_key[-6:]
+    return {"ok": True, "masked": masked}
 
 
 frontend_dist = Path("/opt/panel/frontend/dist")

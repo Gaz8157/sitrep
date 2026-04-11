@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback, createContext, useContext } from 'react'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
+import Tracker from './tabs/Tracker.jsx'
 
 const API = '/api'
 
@@ -135,7 +136,7 @@ function Modal({open,onClose,title,children}){const{C,sz}=useT();if(!open)return
 let _tid=0;function useToast(){const[toasts,setToasts]=useState([]);const timers=useRef({});const dismiss=useCallback(id=>{clearTimeout(timers.current[id]);delete timers.current[id];setToasts(p=>p.filter(t=>t.id!==id))},[]);const push=useCallback((msg,v='default')=>{const id=++_tid;setToasts(p=>[...p,{id,msg,v}]);timers.current[id]=setTimeout(()=>{delete timers.current[id];setToasts(p=>p.filter(t=>t.id!==id))},3500)},[]);return{toasts,push,dismiss}}
 function Toasts({toasts,dismiss}){const{C}=useT();if(!toasts.length)return null;const vs={default:{bg:C.accentBg,text:C.accent,bd:C.accent+'30'},danger:{bg:C.redBg,text:C.red,bd:C.redBorder},warning:{bg:C.orangeBg,text:C.orange,bd:C.orange+'30'},info:{bg:C.blueBg,text:C.blue,bd:C.blue+'30'}};return <div className="fixed right-4 z-[9999] flex flex-col gap-2" style={{top:60}}>{toasts.map(t=>{const s=vs[t.v]||vs.default;return <div key={t.id} className="toast-item px-4 py-2.5 rounded-lg font-bold shadow-xl" style={{background:s.bg,color:s.text,border:`1px solid ${s.bd}`,fontSize:12,display:'flex',alignItems:'center',gap:10,position:'relative',paddingRight:32}}>{t.msg}<button className="toast-x" onClick={()=>dismiss(t.id)} style={{position:'absolute',right:8,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',color:s.text,cursor:'pointer',fontSize:15,fontWeight:900,lineHeight:1,opacity:0,transition:'opacity 0.15s',padding:'2px 4px'}}>x</button></div>})}</div>}
 
-const ROLE_TABS={owner:['dashboard','console','startup','admin','config','mods','files','webhooks','network','aigm','scheduler'],head_admin:['dashboard','console','startup','admin','config','mods','files','webhooks','network','aigm','scheduler'],admin:['dashboard','console','startup','admin','config','mods','files','webhooks','network','aigm','scheduler'],moderator:['dashboard','console','startup','admin','network'],viewer:['dashboard'],demo:['dashboard','console','admin','mods']}
+const ROLE_TABS={owner:['dashboard','console','startup','admin','config','mods','files','webhooks','network','aigm','scheduler','tracker'],head_admin:['dashboard','console','startup','admin','config','mods','files','webhooks','network','aigm','scheduler','tracker'],admin:['dashboard','console','startup','admin','config','mods','files','webhooks','network','aigm','scheduler','tracker'],moderator:['dashboard','console','startup','admin','network'],viewer:['dashboard'],demo:['dashboard','console','admin','mods']}
 const ROLE_COLORS={owner:'default',head_admin:'danger',admin:'info',moderator:'warning',viewer:'dim',demo:'dim'}
 
 function ResetPassword({token,onDone}){const{C,sz}=useT();const[p,setP]=useState('');const[c,setC]=useState('');const[err,setErr]=useState('');const[ok,setOk]=useState(false);const[loading,setLoading]=useState(false)
@@ -3924,8 +3925,8 @@ function Saves({toast}){
   </div>
 }
 
-const TABS=[{id:'dashboard',label:'Dashboard',group:'Server',icon:'⊡',short:'Dash'},{id:'console',label:'Console',group:'Server',icon:'▦',short:'Logs'},{id:'startup',label:'Startup',group:'Server',icon:'▶',short:'Start'},{id:'config',label:'Config',group:'Configuration',icon:'⊙',short:'Config'},{id:'mods',label:'Mods',group:'Configuration',icon:'⊞',short:'Mods'},{id:'files',label:'Files',group:'Configuration',icon:'⊟',short:'Files'},{id:'admin',label:'Admin',group:'Tools',icon:'⊕',short:'Admin'},{id:'webhooks',label:'Webhooks',group:'Tools',icon:'⊗',short:'Hooks'},{id:'network',label:'Network',group:'Tools',icon:'⊘',short:'Net'},{id:'aigm',label:'AI GM',group:'Tools',icon:'⊛',short:'AI GM'},{id:'scheduler',label:'Scheduler',group:'Tools',icon:'⊚',short:'Sched'}]
-const ROUTES={dashboard:Dashboard,console:Console,startup:Startup,admin:Admin,config:Config,mods:Mods,files:Files,webhooks:Webhooks,network:Network,aigm:AiGm,scheduler:Scheduler}
+const TABS=[{id:'dashboard',label:'Dashboard',group:'Server',icon:'⊡',short:'Dash'},{id:'console',label:'Console',group:'Server',icon:'▦',short:'Logs'},{id:'startup',label:'Startup',group:'Server',icon:'▶',short:'Start'},{id:'config',label:'Config',group:'Configuration',icon:'⊙',short:'Config'},{id:'mods',label:'Mods',group:'Configuration',icon:'⊞',short:'Mods'},{id:'files',label:'Files',group:'Configuration',icon:'⊟',short:'Files'},{id:'admin',label:'Admin',group:'Tools',icon:'⊕',short:'Admin'},{id:'webhooks',label:'Webhooks',group:'Tools',icon:'⊗',short:'Hooks'},{id:'network',label:'Network',group:'Tools',icon:'⊘',short:'Net'},{id:'aigm',label:'AI GM',group:'Tools',icon:'⊛',short:'AI GM'},{id:'scheduler',label:'Scheduler',group:'Tools',icon:'⊚',short:'Sched'},{id:'tracker',label:'Tracker',group:'Tools',icon:'◉',short:'Track'}]
+const ROUTES={dashboard:Dashboard,console:Console,startup:Startup,admin:Admin,config:Config,mods:Mods,files:Files,webhooks:Webhooks,network:Network,aigm:AiGm,scheduler:Scheduler,tracker:Tracker}
 
 function NewServerCard({servers, onCreated, toast}) {
   const {C, sz} = useT()
@@ -5226,6 +5227,11 @@ function AppShell({C,sz,CSS,themeName,setThemeName,textSize,setTextSize,authUser
   const mobile=useMobile()
   const swipeRef=useRef(null)
   const[pullY,setPullY]=useState(0);const[pulling,setPulling]=useState(false);const pullRef=useRef(null);const startYRef=useRef(0)
+  const[trackerWiredUp,setTrackerWiredUp]=useState(false)
+  useEffect(()=>{
+    const check=()=>fetch('/api/tracker/status').then(r=>r.json()).then(d=>setTrackerWiredUp(!!d.wired_up)).catch(()=>{})
+    check();const iv=setInterval(check,8000);return()=>clearInterval(iv)
+  },[])
   const onPTRStart=e=>{if(!mobile)return;const el=pullRef.current;if(el&&el.scrollTop===0){startYRef.current=e.touches[0]?.clientY||0;setPulling(true)}}
   const onPTRMove=e=>{if(!pulling||!e.touches[0])return;const dy=e.touches[0].clientY-startYRef.current;if(dy>0)setPullY(Math.min(dy,70))}
   const onPTREnd=()=>{if(!pulling)return;if(pullY>50)window.dispatchEvent(new Event('sitrep-refresh'));setPullY(0);setPulling(false)}
@@ -5240,7 +5246,7 @@ function AppShell({C,sz,CSS,themeName,setThemeName,textSize,setTextSize,authUser
     if(dx<0&&cur<visibleTabs.length-1)nav(visibleTabs[cur+1].id)
     else if(dx>0&&cur>0)nav(visibleTabs[cur-1].id)
   }
-  const visibleTabs=TABS.filter(t=>(ROLE_TABS[authUser.role]||['dashboard']).includes(t.id))
+  const visibleTabs=TABS.filter(t=>{const allowed=(ROLE_TABS[authUser.role]||['dashboard']).includes(t.id);if(t.id==='tracker')return allowed&&trackerWiredUp;return allowed})
   useEffect(()=>{const iv=setInterval(()=>setTime(new Date()),1000);return()=>clearInterval(iv)},[])
   useEffect(()=>{const h=()=>setTab(getHash);window.addEventListener('hashchange',h);return()=>window.removeEventListener('hashchange',h)},[])
   useEffect(()=>{
@@ -5339,7 +5345,7 @@ function AppShell({C,sz,CSS,themeName,setThemeName,textSize,setTextSize,authUser
         {mobile&&sidebarOpen&&<div className="fixed inset-0 z-40" style={{background:'rgba(0,0,0,0.6)',backdropFilter:'blur(2px)'}} onClick={()=>setSidebarOpen(false)}/>}
         <div ref={pullRef} className="flex-1 overflow-auto" style={{padding:mobile?'12px':'20px'}} onTouchStart={e=>{onPTRStart(e);onSwipeStart(e)}} onTouchMove={onPTRMove} onTouchEnd={e=>{onPTREnd(e);onSwipeEnd(e)}}>
           {mobile&&pullY>10&&<div style={{height:pullY,display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden',transition:'height 0.1s'}}><div style={{color:C.accent,fontSize:12,fontWeight:700,opacity:Math.min(pullY/60,1)}}>{pullY>50?'↑ Release to refresh':'↓ Pull to refresh'}</div></div>}
-          <Tab toast={toast} authUser={authUser}/>
+          <Tab toast={toast} authUser={authUser} role={authUser.role}/>
         </div>
       </div>
 
