@@ -106,7 +106,7 @@ export default function Dashboard({toast}){const{C,sz}=useT();const mobile=useMo
           </div>
           {players.length===0
             ?<div style={{color:C.textMuted,fontSize:sz.base}}>No players connected</div>
-            :<div className="space-y-1.5 max-h-[240px] overflow-y-auto">{players.map((p,i)=>{
+            :<div className="space-y-1.5 max-h-[320px] overflow-y-auto">{players.map((p,i)=>{
               const joinedMins=p.joined_at?Math.round((Date.now()/1000-p.joined_at)/60):null
               return <div key={p.player_guid||i} className="flex items-center gap-3 px-3 py-2 rounded-lg" style={{background:C.bgInput,border:`1px solid ${C.border}`}}>
                 <div className="w-7 h-7 rounded flex items-center justify-center font-black shrink-0" style={{background:C.accentBg,color:C.accent,fontSize:sz.base+1}}>{(p.player_name||'?')[0].toUpperCase()}</div>
