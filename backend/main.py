@@ -4096,6 +4096,8 @@ async def change_own_password(request: Request):
     new_pw = body.get("new_password", "")
     if not current_pw or not new_pw:
         return JSONResponse({"error": "current_password and new_password required"}, status_code=400)
+    if len(new_pw) < 8:
+        return JSONResponse({"error": "New password must be at least 8 characters"}, status_code=400)
     data_dir = srv_data_dir(request)
     data = load_panel_users(data_dir)
     u = next((x for x in data["users"] if x["username"] == username), None)

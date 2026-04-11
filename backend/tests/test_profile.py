@@ -114,7 +114,7 @@ def test_upload_avatar_invalid_type(client):
 
 
 def test_upload_avatar_too_large(client):
-    big = io.BytesIO(b"x" * (2 * 1024 * 1024 + 1))
+    big = io.BytesIO(b"x" * (10 * 1024 * 1024 + 1))
     data = {"file": ("avatar.jpg", big, "image/jpeg")}
     r = client.post("/api/users/avatar", files=data)
     assert r.status_code == 400

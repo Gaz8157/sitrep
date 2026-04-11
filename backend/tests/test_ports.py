@@ -37,12 +37,12 @@ def test_manage_ports_open_calls_ufw_allow(monkeypatch):
 
     ufw_specs = [c[-1] for c in calls if "ufw" in c]
     assert "2001/udp" in ufw_specs
-    assert "2002/udp" in ufw_specs
-    assert "2001/tcp" in ufw_specs
+    assert "17777/udp" in ufw_specs
+    assert "19999/tcp" in ufw_specs
     assert all("allow" in str(c) for c in calls if "ufw" in c)
     assert result["ufw"]["2001/udp"] == "allowed"
-    assert result["ufw"]["2002/udp"] == "allowed"
-    assert result["ufw"]["2001/tcp"] == "allowed"
+    assert result["ufw"]["17777/udp"] == "allowed"
+    assert result["ufw"]["19999/tcp"] == "allowed"
 
 
 def test_manage_ports_close_calls_ufw_delete(monkeypatch):
@@ -58,8 +58,8 @@ def test_manage_ports_close_calls_ufw_delete(monkeypatch):
     ufw_calls = [c for c in calls if "ufw" in c]
     assert all("delete" in c for c in ufw_calls)
     assert result["ufw"]["2001/udp"] == "removed"
-    assert result["ufw"]["2002/udp"] == "removed"
-    assert result["ufw"]["2001/tcp"] == "removed"
+    assert result["ufw"]["17777/udp"] == "removed"
+    assert result["ufw"]["19999/tcp"] == "removed"
 
 
 def test_manage_ports_renew_calls_ufw_allow(monkeypatch):
@@ -148,8 +148,8 @@ def test_manage_ports_upnp_maps_all_ports(monkeypatch):
     assert result["upnp"]["available"] is True
     assert result["upnp"]["external_ip"] == "1.2.3.4"
     assert result["upnp"]["mappings"]["2001/udp"] == "ok"
-    assert result["upnp"]["mappings"]["2002/udp"] == "ok"
-    assert result["upnp"]["mappings"]["2001/tcp"] == "ok"
+    assert result["upnp"]["mappings"]["17777/udp"] == "ok"
+    assert result["upnp"]["mappings"]["19999/tcp"] == "ok"
     assert mock_upnp_instance.addportmapping.call_count == 3
 
     # Verify leaseDuration is passed as string (miniupnpc C API requires str, not int)
@@ -201,7 +201,7 @@ def test_manage_ports_upnp_per_port_error_does_not_abort(monkeypatch):
 
 
 def test_port_status_ufw_parses_allowed(monkeypatch):
-    ufw_output = "Status: active\n2001/udp ALLOW Anywhere\n2002/udp ALLOW Anywhere\n2001/tcp ALLOW Anywhere\n"
+    ufw_output = "Status: active\n2001/udp ALLOW Anywhere\n17777/udp ALLOW Anywhere\n19999/tcp ALLOW Anywhere\n"
     monkeypatch.setattr("main.subprocess.run",
         lambda cmd, **kw: mock.Mock(returncode=0, stdout=ufw_output, stderr=""))
     monkeypatch.setattr("main.UPNP_AVAILABLE", False)
@@ -209,8 +209,8 @@ def test_port_status_ufw_parses_allowed(monkeypatch):
     result = app_main._port_status(_SERVER)
 
     assert result["ufw"]["2001/udp"] == "allowed"
-    assert result["ufw"]["2002/udp"] == "allowed"
-    assert result["ufw"]["2001/tcp"] == "allowed"
+    assert result["ufw"]["17777/udp"] == "allowed"
+    assert result["ufw"]["19999/tcp"] == "allowed"
 
 
 def test_port_status_ufw_missing_shows_not_set(monkeypatch):
@@ -221,7 +221,7 @@ def test_port_status_ufw_missing_shows_not_set(monkeypatch):
     result = app_main._port_status(_SERVER)
 
     assert result["ufw"]["2001/udp"] == "not set"
-    assert result["ufw"]["2002/udp"] == "not set"
+    assert result["ufw"]["17777/udp"] == "not set"
 
 
 def test_port_status_upnp_queries_existing_mappings(monkeypatch):
