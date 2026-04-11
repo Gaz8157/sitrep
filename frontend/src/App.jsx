@@ -143,9 +143,15 @@ function AppShell({C,sz,CSS,themeName,setThemeName,textSize,setTextSize,authUser
   const swipeRef=useRef(null)
   const[pullY,setPullY]=useState(0);const[pulling,setPulling]=useState(false);const pullRef=useRef(null);const startYRef=useRef(0)
   const[trackerWiredUp,setTrackerWiredUp]=useState(false)
+  const[aigmEnabled,setAigmEnabled]=useState(true)
   useEffect(()=>{
     const check=()=>fetch('/api/tracker/status').then(r=>r.json()).then(d=>setTrackerWiredUp(!!d.wired_up)).catch(()=>{})
     check();const iv=setInterval(check,8000);return()=>clearInterval(iv)
+  },[])
+  useEffect(()=>{
+    fetch(`${API}/settings/public`).then(r=>r.ok?r.json():null).then(d=>{
+      if(d&&typeof d.aigm_enabled==='boolean')setAigmEnabled(d.aigm_enabled)
+    }).catch(()=>{})
   },[])
   const onPTRStart=e=>{if(!mobile)return;const el=pullRef.current;if(el&&el.scrollTop===0){startYRef.current=e.touches[0]?.clientY||0;setPulling(true)}}
   const onPTRMove=e=>{if(!pulling||!e.touches[0])return;const dy=e.touches[0].clientY-startYRef.current;if(dy>0)setPullY(Math.min(dy,70))}
@@ -161,7 +167,7 @@ function AppShell({C,sz,CSS,themeName,setThemeName,textSize,setTextSize,authUser
     if(dx<0&&cur<visibleTabs.length-1)nav(visibleTabs[cur+1].id)
     else if(dx>0&&cur>0)nav(visibleTabs[cur-1].id)
   }
-  const visibleTabs=TABS.filter(t=>{const allowed=(ROLE_TABS[authUser.role]||['dashboard']).includes(t.id);if(t.id==='tracker')return allowed&&trackerWiredUp;return allowed})
+  const visibleTabs=TABS.filter(t=>{const allowed=(ROLE_TABS[authUser.role]||['dashboard']).includes(t.id);if(t.id==='tracker')return allowed&&trackerWiredUp;if(t.id==='aigm')return allowed&&aigmEnabled;return allowed})
   useEffect(()=>{const iv=setInterval(()=>setTime(new Date()),1000);return()=>clearInterval(iv)},[])
   useEffect(()=>{const h=()=>setTab(getHash);window.addEventListener('hashchange',h);return()=>window.removeEventListener('hashchange',h)},[])
   useEffect(()=>{

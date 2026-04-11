@@ -1,10 +1,120 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { AreaChart, Area, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { useT } from '../ctx.jsx'
 import { API, post, put } from '../api.js'
 import { useFetch, useFetchOnce } from '../hooks.js'
 import { Badge, Btn, Card, Input, Modal, Toggle } from '../components/ui.jsx'
 import { DISCORD_BLURPLE } from '../constants.js'
+
+// SMTP provider presets — host/port/auth pattern for common mail services.
+// Picking a provider auto-fills the technical fields so users only need to
+// enter the credential-level info (usually their login + an API key or
+// app password). `fromMatchesUser` means the From Address must equal the
+// username (Gmail, Fastmail) and gets auto-linked to avoid a rejected send.
+const SMTP_PROVIDERS = {
+  gmail: {
+    name: 'Gmail', host: 'smtp.gmail.com', port: 587, use_tls: true,
+    userLabel: 'Your Gmail address', userPlaceholder: 'yourname@gmail.com',
+    passLabel: 'App Password', passPlaceholder: '16 characters (spaces OK)',
+    fromMatchesUser: true,
+    warning: "Don't use your regular Gmail password — it won't work. You need an App Password (see steps below).",
+    steps: [
+      'Enable 2-Step Verification on your Google account (required before App Passwords unlock)',
+      'Open the Google App Passwords page and create one named "SITREP Panel"',
+      'Copy the 16-character code Google shows (spaces are fine, Gmail strips them)',
+      'Paste it into the App Password field below and hit Save',
+    ],
+    helpUrl: 'https://myaccount.google.com/apppasswords', helpLabel: 'Open Gmail App Passwords',
+    helpUrl2: 'https://myaccount.google.com/signinoptions/two-step-verification', helpLabel2: 'Enable 2-Step Verification',
+  },
+  sendgrid: {
+    name: 'SendGrid', host: 'smtp.sendgrid.net', port: 587, use_tls: true,
+    userLabel: 'Username', userPlaceholder: 'apikey', userFixed: 'apikey',
+    passLabel: 'API Key', passPlaceholder: 'SG.xxxxxxxxxxxxxxxx',
+    fromMatchesUser: false,
+    warning: 'SendGrid requires a verified sender address. You cannot send from a random email.',
+    steps: [
+      'Sign up at sendgrid.com (free tier: 100 emails/day forever)',
+      'Settings → API Keys → Create API Key → grant "Mail Send" permission → copy the key',
+      'Settings → Sender Authentication → verify the email address you want in the From field',
+      'Paste the API key below and put the verified email in From Address (under Advanced)',
+    ],
+    helpUrl: 'https://app.sendgrid.com/settings/api_keys', helpLabel: 'Open SendGrid API Keys',
+  },
+  mailgun: {
+    name: 'Mailgun', host: 'smtp.mailgun.org', port: 587, use_tls: true,
+    userLabel: 'SMTP Login', userPlaceholder: 'postmaster@yourdomain.com',
+    passLabel: 'SMTP Password', passPlaceholder: 'from Mailgun domain settings',
+    fromMatchesUser: false,
+    warning: 'Mailgun needs a verified domain (or their sandbox) before it will deliver.',
+    steps: [
+      'Sign up at mailgun.com (free tier: 100 emails/day on the sandbox domain)',
+      'Sending → Domain settings → SMTP credentials',
+      'Copy the SMTP Login (looks like postmaster@...) and password',
+      'Paste both below — From Address must be on the Mailgun domain too',
+    ],
+    helpUrl: 'https://app.mailgun.com/app/sending/domains', helpLabel: 'Open Mailgun Domains',
+  },
+  resend: {
+    name: 'Resend', host: 'smtp.resend.com', port: 587, use_tls: true,
+    userLabel: 'Username', userPlaceholder: 'resend', userFixed: 'resend',
+    passLabel: 'API Key', passPlaceholder: 're_xxxxxxxxxxxxxxxx',
+    fromMatchesUser: false,
+    warning: 'Username is always the literal word "resend". Use your API key as the password.',
+    steps: [
+      'Sign up at resend.com (free tier: 3000 emails/month, 100/day)',
+      'API Keys → Create API Key → give it "Sending access" → copy the re_... key',
+      'Verify a domain you own, OR use onboarding@resend.dev as From for testing',
+      'Paste the API key as the password below',
+    ],
+    helpUrl: 'https://resend.com/api-keys', helpLabel: 'Open Resend API Keys',
+  },
+  postmark: {
+    name: 'Postmark', host: 'smtp.postmarkapp.com', port: 587, use_tls: true,
+    userLabel: 'Server Token', userPlaceholder: 'xxxxxxxx-xxxx-xxxx-xxxx',
+    passLabel: 'Server Token (same)', passPlaceholder: 'same as username above',
+    fromMatchesUser: false,
+    warning: 'Postmark uses the same Server Token for BOTH username AND password.',
+    steps: [
+      'Sign up at postmarkapp.com (free tier: 100 emails/month)',
+      'Create a Server → API Tokens tab → copy the Server API Token',
+      'Sender Signatures → verify the email you want to send from',
+      'Paste the same token into BOTH fields below',
+    ],
+    helpUrl: 'https://account.postmarkapp.com', helpLabel: 'Open Postmark',
+  },
+  fastmail: {
+    name: 'Fastmail', host: 'smtp.fastmail.com', port: 587, use_tls: true,
+    userLabel: 'Your Fastmail address', userPlaceholder: 'yourname@fastmail.com',
+    passLabel: 'App Password', passPlaceholder: '16-character app password',
+    fromMatchesUser: true,
+    warning: 'Use an App Password, not your regular Fastmail login password.',
+    steps: [
+      'Log in to Fastmail → Settings → Privacy & Security → App Passwords',
+      'Create one with "Mail (SMTP)" access',
+      'Copy the generated password and paste below',
+    ],
+    helpUrl: 'https://www.fastmail.com/settings/security/devicekeys', helpLabel: 'Open Fastmail App Passwords',
+  },
+  custom: {
+    name: 'Custom / Other SMTP', host: '', port: 587, use_tls: true,
+    userLabel: 'SMTP Username', userPlaceholder: 'login',
+    passLabel: 'SMTP Password', passPlaceholder: 'password or API key',
+    fromMatchesUser: false,
+    warning: 'Enter the host, port, and credentials from your provider. Default port 587 with STARTTLS.',
+    steps: [],
+  },
+}
+
+// Reverse-lookup: guess which provider a stored smtp_host belongs to.
+const detectProvider = (host) => {
+  const h = (host || '').toLowerCase().trim()
+  if (!h) return 'gmail'  // default for new installs
+  for (const [key, cfg] of Object.entries(SMTP_PROVIDERS)) {
+    if (cfg.host && h === cfg.host) return key
+  }
+  return 'custom'
+}
 
 function DiscordIcon({size=18}){return<svg width={size} height={size} viewBox="0 0 71 55" fill={DISCORD_BLURPLE}><path d="M60.1 4.9A58.5 58.5 0 0 0 45.6.8a.2.2 0 0 0-.2.1 40.7 40.7 0 0 0-1.8 3.7 54 54 0 0 0-16.2 0 37.4 37.4 0 0 0-1.8-3.7.2.2 0 0 0-.2-.1A58.4 58.4 0 0 0 10.9 4.9a.2.2 0 0 0-.1.1C1.6 18.2-.9 31.1.3 43.8a.2.2 0 0 0 .1.2 58.8 58.8 0 0 0 17.7 9 .2.2 0 0 0 .2-.1 42 42 0 0 0 3.6-5.9.2.2 0 0 0-.1-.3 38.7 38.7 0 0 1-5.5-2.6.2.2 0 0 1 0-.4c.4-.3.7-.6 1.1-.9a.2.2 0 0 1 .2 0c11.5 5.3 24 5.3 35.4 0a.2.2 0 0 1 .2 0c.4.3.7.6 1.1.9a.2.2 0 0 1 0 .4 36.2 36.2 0 0 1-5.5 2.6.2.2 0 0 0-.1.3 47.1 47.1 0 0 0 3.6 5.9.2.2 0 0 0 .2.1 58.6 58.6 0 0 0 17.8-9 .2.2 0 0 0 .1-.2c1.5-15.1-2.5-28-10.5-39.5a.2.2 0 0 0-.1-.1zM23.7 36.1c-3.5 0-6.4-3.2-6.4-7.2s2.8-7.2 6.4-7.2c3.6 0 6.5 3.3 6.4 7.2 0 4-2.8 7.2-6.4 7.2zm23.6 0c-3.5 0-6.4-3.2-6.4-7.2s2.8-7.2 6.4-7.2c3.6 0 6.5 3.3 6.4 7.2 0 4-2.9 7.2-6.4 7.2z"/></svg>}
 
@@ -31,8 +141,16 @@ export default function Permissions({toast,authUser}){const{C,sz}=useT()
   const[showLinkModal,setShowLinkModal]=useState(false);const[linkTarget,setLinkTarget]=useState(null)
   const[linkDiscordId,setLinkDiscordId]=useState('');const[linkDiscordName,setLinkDiscordName]=useState('')
   const[showDiscordSection,setShowDiscordSection]=useState(true)
+  const[showSmtpSection,setShowSmtpSection]=useState(false)
   const[showUsersSection,setShowUsersSection]=useState(true)
   const[showPermsSection,setShowPermsSection]=useState(false)
+  // SMTP state
+  const[smtpSettings,setSmtpSettings]=useState({smtp_host:'',smtp_port:587,smtp_user:'',smtp_pass:'',smtp_from:'',smtp_from_name:'SITREP Panel',smtp_use_tls:true})
+  const[smtpDirty,setSmtpDirty]=useState(false);const[smtpSaving,setSmtpSaving]=useState(false)
+  const[smtpTestTo,setSmtpTestTo]=useState('');const[smtpTesting,setSmtpTesting]=useState(false)
+  const[smtpProvider,setSmtpProvider]=useState('gmail')
+  const[smtpShowAdvanced,setSmtpShowAdvanced]=useState(false)
+  const smtpDetectedRef=useRef(false)
 
   useEffect(()=>{if(permData&&!permDirty)setLocalPerms(permData.permissions||{})},[permData])
   useEffect(()=>{if(panelSettings){
@@ -44,6 +162,21 @@ export default function Permissions({toast,authUser}){const{C,sz}=useT()
       frontend_url:panelSettings.frontend_url||`${window.location.protocol}//${window.location.hostname}:${window.location.port||8000}`,
       discord_allow_auto_register:!!panelSettings.discord_allow_auto_register
     })
+    setSmtpSettings({
+      smtp_host:panelSettings.smtp_host||'',
+      smtp_port:panelSettings.smtp_port||587,
+      smtp_user:panelSettings.smtp_user||'',
+      smtp_pass:panelSettings.smtp_pass||'',
+      smtp_from:panelSettings.smtp_from||'',
+      smtp_from_name:panelSettings.smtp_from_name||'SITREP Panel',
+      smtp_use_tls:panelSettings.smtp_use_tls!==false,
+    })
+    // Only detect the provider the first time settings arrive so we don't
+    // stomp the user's manual provider choice on a later reload.
+    if(!smtpDetectedRef.current){
+      setSmtpProvider(detectProvider(panelSettings.smtp_host))
+      smtpDetectedRef.current=true
+    }
   }},[panelSettings])
 
   const users=userData?.users||[]
@@ -61,9 +194,33 @@ export default function Permissions({toast,authUser}){const{C,sz}=useT()
   const setPermRole=(key,role)=>{setLocalPerms(p=>({...p,[key]:role}));setPermDirty(true)}
   const savePerms=async()=>{const r=await put(`${API}/permissions`,localPerms);if(r.error){toast(r.error,'danger');return};toast('Permissions saved');setPermDirty(false);reloadPerms()}
   const saveDiscord=async()=>{setDiscordSaving(true);const r=await put(`${API}/settings`,{...panelSettings,...discordSettings});setDiscordSaving(false);r.error?toast(r.error,'danger'):(toast('Discord settings saved'),reloadPanelSettings(),setDiscordDirty(false))}
+  const saveSmtp=async()=>{setSmtpSaving(true);const r=await put(`${API}/settings`,{...panelSettings,...smtpSettings});setSmtpSaving(false);r.error?toast(r.error,'danger'):(toast('SMTP settings saved'),reloadPanelSettings(),setSmtpDirty(false))}
+  const testSmtp=async()=>{if(!smtpTestTo.trim()||!smtpTestTo.includes('@')){toast('Enter a valid test email address','danger');return};setSmtpTesting(true);const r=await post(`${API}/settings/smtp/test`,{to:smtpTestTo.trim()});setSmtpTesting(false);r.error?toast(r.error,'danger'):toast(r.message||'Test email sent','success')}
+  const pickSmtpProvider=(key)=>{const p=SMTP_PROVIDERS[key]; if(!p)return
+    setSmtpProvider(key)
+    setSmtpSettings(s=>({
+      ...s,
+      smtp_host:p.host||s.smtp_host,
+      smtp_port:p.port||s.smtp_port,
+      smtp_use_tls:p.use_tls!==false,
+      // Force the literal username for providers that require it (SendGrid, Resend)
+      smtp_user:p.userFixed!==undefined?p.userFixed:s.smtp_user,
+      // Re-link From when switching to a provider that requires from==user
+      smtp_from:p.fromMatchesUser?(s.smtp_user||''):s.smtp_from,
+    }))
+    setSmtpDirty(true)}
+  const updateSmtpUser=(val)=>{
+    const p=SMTP_PROVIDERS[smtpProvider]||SMTP_PROVIDERS.custom
+    setSmtpSettings(s=>({
+      ...s,
+      smtp_user:val,
+      smtp_from:p.fromMatchesUser?val:s.smtp_from,
+    }))
+    setSmtpDirty(true)}
   const unlinkDiscord=async(username)=>{const r=await put(`${API}/users/${username}/link-discord`,{discord_id:'',discord_username:''});r.error?toast(r.error,'danger'):(toast(`Unlinked Discord from ${username}`,'warning'),reload())}
   const doLinkDiscord=async()=>{if(!linkDiscordId.trim()){toast('Discord ID required','danger');return};const r=await put(`${API}/users/${linkTarget}/link-discord`,{discord_id:linkDiscordId.trim(),discord_username:linkDiscordName.trim()});r.error?toast(r.error,'danger'):(toast(`Linked Discord to ${linkTarget}`),setShowLinkModal(false),setLinkDiscordId(''),setLinkDiscordName(''),reload())}
   const discordEnabled=!!(panelSettings?.discord_client_id)
+  const smtpEnabled=!!(panelSettings?.smtp_host)
 
   if(loading)return <div className="animate-pulse" style={{color:C.textDim,fontSize:sz.base}}>Loading...</div>
 
@@ -158,6 +315,115 @@ export default function Permissions({toast,authUser}){const{C,sz}=useT()
           </div>)}
         </Card>
       </div>}
+    </div>
+
+    {/* ── EMAIL / SMTP ── */}
+    <div>
+      <SectionHeader C={C} sz={sz} title="Email / SMTP" sub="Password reset emails — pick a provider and fill in 2 fields" open={showSmtpSection} onToggle={()=>setShowSmtpSection(p=>!p)}
+        action={<div className="flex items-center gap-2">
+          {smtpEnabled?<Badge text="ACTIVE" v="default" pulse/>:<Badge text="NOT CONFIGURED" v="dim"/>}
+          {smtpDirty&&isOwner&&<Btn small onClick={saveSmtp} disabled={smtpSaving}>{smtpSaving?'Saving...':'Save'}</Btn>}
+        </div>}/>
+      {showSmtpSection&&(()=>{const P=SMTP_PROVIDERS[smtpProvider]||SMTP_PROVIDERS.custom; return <div className="space-y-3">
+        <div className="rounded-xl p-5 space-y-4" style={{background:C.bgInput,border:`1.5px solid ${C.border}`}}>
+          <div>
+            <div className="font-black" style={{color:C.textBright,fontSize:sz.base+1}}>Outgoing Mail Server</div>
+            <div style={{color:C.textMuted,fontSize:sz.stat}}>The panel needs to borrow a mail server to send password reset emails. Pick a provider below and we'll auto-fill the technical settings — you only need to enter your login + password/API key.</div>
+          </div>
+
+          {/* Provider picker */}
+          <div>
+            <label className="block font-bold uppercase tracking-wide mb-2" style={{color:C.textDim,fontSize:sz.label}}>1. Choose your email provider</label>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              {Object.entries(SMTP_PROVIDERS).map(([key,cfg])=>{const selected=smtpProvider===key;return <button key={key} onClick={()=>isOwner&&pickSmtpProvider(key)} disabled={!isOwner} className="rounded-lg px-3 py-2.5 font-bold text-left cursor-pointer" style={{background:selected?C.accentBg:C.bg,border:`1.5px solid ${selected?C.accent:C.border}`,color:selected?C.accent:C.text,fontSize:sz.stat,opacity:isOwner?1:0.6,cursor:isOwner?'pointer':'not-allowed'}}>{cfg.name}</button>})}
+            </div>
+          </div>
+
+          {/* Provider-specific warning + setup steps */}
+          {P.warning&&<div className="rounded-lg p-3" style={{background:C.yellowBg||'#fbbf2410',border:`1px solid ${C.yellow||'#fbbf24'}40`}}>
+            <div className="flex items-start gap-2">
+              <span style={{fontSize:sz.base}}>⚠️</span>
+              <div style={{color:C.text,fontSize:sz.stat,lineHeight:1.5}}>{P.warning}</div>
+            </div>
+          </div>}
+
+          {P.steps.length>0&&<div className="rounded-lg p-4 space-y-2" style={{background:C.bg,border:`1px solid ${C.border}`}}>
+            <div className="font-black uppercase tracking-wide" style={{color:C.accent,fontSize:sz.label}}>Setup steps for {P.name}</div>
+            <ol className="space-y-1.5" style={{color:C.text,fontSize:sz.stat,lineHeight:1.5}}>
+              {P.steps.map((step,i)=><li key={i} className="flex gap-2"><span className="font-black shrink-0" style={{color:C.accent}}>{i+1}.</span><span>{step}</span></li>)}
+            </ol>
+            <div className="flex gap-2 flex-wrap pt-1">
+              {P.helpUrl&&<a href={P.helpUrl} target="_blank" rel="noreferrer" className="px-3 py-1.5 rounded-lg font-bold no-underline" style={{background:C.accentBg,color:C.accent,border:`1px solid ${C.accent}40`,fontSize:sz.stat,textDecoration:'none'}}>🔗 {P.helpLabel}</a>}
+              {P.helpUrl2&&<a href={P.helpUrl2} target="_blank" rel="noreferrer" className="px-3 py-1.5 rounded-lg font-bold no-underline" style={{background:C.bgInput,color:C.text,border:`1px solid ${C.border}`,fontSize:sz.stat,textDecoration:'none'}}>🔗 {P.helpLabel2}</a>}
+            </div>
+          </div>}
+
+          {/* Credential fields */}
+          {isOwner&&<div className="space-y-3">
+            <div>
+              <label className="block font-bold uppercase tracking-wide mb-1.5" style={{color:C.textDim,fontSize:sz.label}}>2. {P.userLabel}</label>
+              <input value={smtpSettings.smtp_user} onChange={e=>updateSmtpUser(e.target.value)} placeholder={P.userPlaceholder} readOnly={!!P.userFixed} className="w-full rounded-lg px-3 py-2.5 outline-none font-mono" style={{background:P.userFixed?C.bg:C.bgInput,border:`1px solid ${C.border}`,color:C.text,fontSize:sz.input}}/>
+              {P.userFixed&&<div style={{color:C.textMuted,fontSize:sz.stat-1,marginTop:4}}>Fixed by provider — cannot be changed.</div>}
+            </div>
+            <div>
+              <label className="block font-bold uppercase tracking-wide mb-1.5" style={{color:C.textDim,fontSize:sz.label}}>3. {P.passLabel}</label>
+              <Input label="" value={smtpSettings.smtp_pass} onChange={v=>{setSmtpSettings(p=>({...p,smtp_pass:v}));setSmtpDirty(true)}} type="password" placeholder={P.passPlaceholder} mono/>
+            </div>
+
+            {/* From Address — only shown inline for providers that need it explicitly */}
+            {!P.fromMatchesUser&&<div>
+              <label className="block font-bold uppercase tracking-wide mb-1.5" style={{color:C.textDim,fontSize:sz.label}}>4. From Address <span style={{color:C.textMuted,fontWeight:400}}>(the sender address recipients see)</span></label>
+              <input value={smtpSettings.smtp_from} onChange={e=>{setSmtpSettings(p=>({...p,smtp_from:e.target.value}));setSmtpDirty(true)}} placeholder="no-reply@yourdomain.com" className="w-full rounded-lg px-3 py-2.5 outline-none font-mono" style={{background:C.bgInput,border:`1px solid ${C.border}`,color:C.text,fontSize:sz.input}}/>
+            </div>}
+            {P.fromMatchesUser&&smtpSettings.smtp_user&&<div style={{color:C.textMuted,fontSize:sz.stat-1}}>From Address will auto-match your {P.name} username: <span className="font-mono" style={{color:C.textDim}}>{smtpSettings.smtp_from||smtpSettings.smtp_user}</span></div>}
+
+            {/* Advanced toggle */}
+            <div>
+              <button onClick={()=>setSmtpShowAdvanced(p=>!p)} className="font-bold cursor-pointer" style={{color:C.textMuted,fontSize:sz.stat,background:'transparent',border:'none',padding:0}}>{smtpShowAdvanced?'▾':'▸'} Advanced settings (host, port, From Name, TLS)</button>
+            </div>
+            {smtpShowAdvanced&&<div className="space-y-3 rounded-lg p-3" style={{background:C.bg,border:`1px dashed ${C.border}`}}>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-2">
+                  <label className="block font-bold uppercase tracking-wide mb-1.5" style={{color:C.textDim,fontSize:sz.label}}>SMTP Host</label>
+                  <input value={smtpSettings.smtp_host} onChange={e=>{setSmtpSettings(p=>({...p,smtp_host:e.target.value}));setSmtpDirty(true)}} placeholder="e.g. smtp.gmail.com" className="w-full rounded-lg px-3 py-2.5 outline-none font-mono" style={{background:C.bgInput,border:`1px solid ${C.border}`,color:C.text,fontSize:sz.input}}/>
+                </div>
+                <div>
+                  <label className="block font-bold uppercase tracking-wide mb-1.5" style={{color:C.textDim,fontSize:sz.label}}>Port</label>
+                  <input type="number" value={smtpSettings.smtp_port} onChange={e=>{setSmtpSettings(p=>({...p,smtp_port:parseInt(e.target.value)||587}));setSmtpDirty(true)}} placeholder="587" className="w-full rounded-lg px-3 py-2.5 outline-none font-mono" style={{background:C.bgInput,border:`1px solid ${C.border}`,color:C.text,fontSize:sz.input}}/>
+                </div>
+              </div>
+              <div>
+                <label className="block font-bold uppercase tracking-wide mb-1.5" style={{color:C.textDim,fontSize:sz.label}}>From Name <span style={{color:C.textMuted,fontWeight:400}}>(shown in recipient's inbox)</span></label>
+                <input value={smtpSettings.smtp_from_name} onChange={e=>{setSmtpSettings(p=>({...p,smtp_from_name:e.target.value}));setSmtpDirty(true)}} placeholder="SITREP Panel" className="w-full rounded-lg px-3 py-2.5 outline-none" style={{background:C.bgInput,border:`1px solid ${C.border}`,color:C.text,fontSize:sz.input}}/>
+              </div>
+              {P.fromMatchesUser&&<div>
+                <label className="block font-bold uppercase tracking-wide mb-1.5" style={{color:C.textDim,fontSize:sz.label}}>From Address <span style={{color:C.textMuted,fontWeight:400}}>(auto-linked to username for {P.name})</span></label>
+                <input value={smtpSettings.smtp_from} onChange={e=>{setSmtpSettings(p=>({...p,smtp_from:e.target.value}));setSmtpDirty(true)}} placeholder={smtpSettings.smtp_user||'you@example.com'} className="w-full rounded-lg px-3 py-2.5 outline-none font-mono" style={{background:C.bgInput,border:`1px solid ${C.border}`,color:C.text,fontSize:sz.input}}/>
+              </div>}
+              <Toggle label="Use STARTTLS (recommended for port 587)" value={smtpSettings.smtp_use_tls} onChange={()=>{setSmtpSettings(p=>({...p,smtp_use_tls:!p.smtp_use_tls}));setSmtpDirty(true)}}/>
+            </div>}
+
+            {/* Save */}
+            <div>
+              <Btn onClick={saveSmtp} disabled={smtpSaving||!smtpDirty}>{smtpSaving?'Saving...':smtpDirty?'Save Settings':'✓ Saved'}</Btn>
+            </div>
+
+            {/* Test email card */}
+            <div className="rounded-lg p-4 space-y-2" style={{background:smtpEnabled?C.accentBg:C.bg,border:`1px solid ${smtpEnabled?C.accent+'30':C.border}`}}>
+              <div className="font-black uppercase tracking-wide" style={{color:smtpEnabled?C.accent:C.textDim,fontSize:sz.label}}>4. Send yourself a test email</div>
+              <div style={{color:C.textMuted,fontSize:sz.stat}}>After saving, send a test message to any inbox you can check. If it arrives, password reset emails will work.</div>
+              <div className="flex gap-2 items-end flex-wrap pt-1">
+                <div className="flex-1 min-w-[200px]">
+                  <input value={smtpTestTo} onChange={e=>setSmtpTestTo(e.target.value)} placeholder="you@example.com" className="w-full rounded-lg px-3 py-2.5 outline-none font-mono" style={{background:C.bgInput,border:`1px solid ${C.border}`,color:C.text,fontSize:sz.input}}/>
+                </div>
+                <Btn onClick={testSmtp} disabled={smtpTesting||!smtpEnabled||smtpDirty}>{smtpTesting?'Sending...':'Send Test Email'}</Btn>
+              </div>
+              {smtpDirty&&<div style={{color:C.yellow||'#fbbf24',fontSize:sz.stat-1}}>⚠ Save your changes first, then test.</div>}
+              {!smtpEnabled&&!smtpDirty&&<div style={{color:C.textMuted,fontSize:sz.stat-1}}>Fill in host, username, and password above first.</div>}
+            </div>
+          </div>}
+        </div>
+      </div>})()}
     </div>
 
     {/* ── PANEL USERS ── */}

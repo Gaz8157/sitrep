@@ -33,6 +33,7 @@ docs/superpowers/
 SITREP_HANDOFF.md
 scraper/
 docs/QUALITY_REPORT.md
+docs/BACKEND_AUDIT_*.md
 
 # OS
 .DS_Store
