@@ -1906,32 +1906,57 @@ async def delete_server(server_id: int, request: Request):
         warnings.append(f"port cleanup: {e}")
 
     # 3. Remove on-disk per-server tree. Everything created by provision_server lives
-    # under /opt/panel/servers/{id}/ — blow that away. install_dir is the shared Arma
-    # Reforger binary directory; never touch it.
-    srv_root = SERVERS_DIR / str(server_id)
-    if srv_root.exists():
-        try:
-            shutil.rmtree(srv_root)
-        except Exception as e:
-            warnings.append(f"rmtree {srv_root}: {e}")
-    else:
-        # Fall back to individual path removal for servers whose paths were hand-edited
-        # off the default SERVERS_DIR layout.
-        for key in ("data_dir", "profile_dir"):
-            p = server_to_delete.get(key)
-            if p and p != str(ARMA_DIR) and Path(p).exists():
-                try:
-                    shutil.rmtree(p)
-                except Exception as e:
-                    warnings.append(f"rmtree {p}: {e}")
-        cfg = server_to_delete.get("config_path")
-        if cfg and Path(cfg).exists():
-            try:
-                Path(cfg).unlink()
-            except Exception as e:
-                warnings.append(f"unlink {cfg}: {e}")
+    # under /opt/panel/servers/{id}/. Also clean registered paths separately, in case
+    # someone hand-edited data_dir / profile_dir / config_path to point elsewhere.
+    # Never touch install_dir (shared Arma Reforger binary) or PANEL_DATA / ARMA_DIR.
+    protected = {str(PANEL_DATA), str(ARMA_DIR), "/", "/opt", "/opt/panel"}
 
-    # 4. Drop from the registry.
+    def _safe_rmtree(p: Path, label: str):
+        sp = str(p)
+        if sp in protected or not p.exists():
+            return
+        try:
+            shutil.rmtree(p)
+        except Exception as e:
+            warnings.append(f"rmtree {label} {p}: {e}")
+
+    srv_root = SERVERS_DIR / str(server_id)
+    _safe_rmtree(srv_root, "srv_root")
+
+    for key in ("data_dir", "profile_dir"):
+        p = server_to_delete.get(key)
+        if p:
+            _safe_rmtree(Path(p), key)
+
+    cfg_path = server_to_delete.get("config_path")
+    if cfg_path and cfg_path not in protected and Path(cfg_path).exists():
+        try:
+            Path(cfg_path).unlink()
+        except Exception as e:
+            warnings.append(f"unlink config_path {cfg_path}: {e}")
+
+    # 4. Purge tracker state (in-memory + global tracker.db rows) for this server's
+    # mod_server_id so the tab doesn't ghost "Live" from stale timestamps, and so
+    # historical snapshots/events don't linger tagged with a now-dead server id.
+    mod_id = (server_to_delete.get("tracker_mod_id") or "").strip()
+    if mod_id:
+        with _TRACKER_STATE_LOCK:
+            _TRACKER_LATEST_SNAPSHOTS.pop(mod_id, None)
+            _TRACKER_RECENT_EVENTS.pop(mod_id, None)
+            _TRACKER_LAST_RX.pop(mod_id, None)
+        try:
+            with _TRACKER_DB_LOCK:
+                conn = sqlite3.connect(TRACKER_DB)
+                try:
+                    conn.execute("DELETE FROM tr_snapshots WHERE server_id = ?", (mod_id,))
+                    conn.execute("DELETE FROM tr_events WHERE server_id = ?", (mod_id,))
+                    conn.commit()
+                finally:
+                    conn.close()
+        except Exception as e:
+            warnings.append(f"tracker db purge: {e}")
+
+    # 5. Drop from the registry.
     data["servers"] = [x for x in data["servers"] if x["id"] != server_id]
     save_servers(data)
 
