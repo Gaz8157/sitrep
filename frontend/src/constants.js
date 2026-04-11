@@ -1,0 +1,138 @@
+export const THEMES = {
+  dark: { name:'Midnight', bg:'#06090d', bgCard:'#0c1219', bgInput:'#080d13', bgHover:'#111c28',
+    border:'#1a2636', borderLight:'#243344', text:'#d0d8e4', textDim:'#8494a8', textMuted:'#506070',
+    textBright:'#f0f4f8', accent:'#69f0ae', accentBg:'#69f0ae10', red:'#ff4757', redBg:'#ff475712',
+    redBorder:'#ff475730', orange:'#ffa502', orangeBg:'#ffa50212', blue:'#3498ff', blueBg:'#3498ff12',
+    purple:'#b388ff', purpleBg:'#b388ff12', cyan:'#4dd0e1', consoleBg:'#040608' },
+  light: { name:'Daylight', bg:'#f0f2f5', bgCard:'#ffffff', bgInput:'#f5f6f8', bgHover:'#e8eaee',
+    border:'#d0d4da', borderLight:'#e0e4e8', text:'#1a1a2e', textDim:'#505868', textMuted:'#8890a0',
+    textBright:'#0a0a1a', accent:'#10b981', accentBg:'#10b98112', red:'#ef4444', redBg:'#ef444412',
+    redBorder:'#ef444430', orange:'#f59e0b', orangeBg:'#f59e0b12', blue:'#3b82f6', blueBg:'#3b82f612',
+    purple:'#8b5cf6', purpleBg:'#8b5cf612', cyan:'#06b6d4', consoleBg:'#f8f9fa' },
+  military: { name:'Tactical', bg:'#0a0f08', bgCard:'#121c10', bgInput:'#0c1209', bgHover:'#162010',
+    border:'#1e2e16', borderLight:'#283d1e', text:'#c0d0b0', textDim:'#7a8a68', textMuted:'#4a5a38',
+    textBright:'#e8f0d8', accent:'#84cc16', accentBg:'#84cc1610', red:'#ef4444', redBg:'#ef444412',
+    redBorder:'#ef444430', orange:'#eab308', orangeBg:'#eab30812', blue:'#22d3ee', blueBg:'#22d3ee12',
+    purple:'#a78bfa', purpleBg:'#a78bfa12', cyan:'#22d3ee', consoleBg:'#060a04' },
+  ember: { name:'Ember', bg:'#0d0808', bgCard:'#161010', bgInput:'#100c0c', bgHover:'#1e1414',
+    border:'#2e1e1e', borderLight:'#3e2828', text:'#e0d0c8', textDim:'#9a8478', textMuted:'#6a5448',
+    textBright:'#f8f0e8', accent:'#f97316', accentBg:'#f9731610', red:'#ef4444', redBg:'#ef444412',
+    redBorder:'#ef444430', orange:'#f97316', orangeBg:'#f9731612', blue:'#38bdf8', blueBg:'#38bdf812',
+    purple:'#c084fc', purpleBg:'#c084fc12', cyan:'#2dd4bf', consoleBg:'#080404' },
+  ocean: { name:'Ocean', bg:'#030d18', bgCard:'#051628', bgInput:'#040e1e', bgHover:'#082034',
+    border:'#0c2840', borderLight:'#103455', text:'#a8c8e0', textDim:'#5888a8', textMuted:'#305060',
+    textBright:'#d0e8f8', accent:'#00b4d8', accentBg:'#00b4d810', red:'#ef4444', redBg:'#ef444412',
+    redBorder:'#ef444430', orange:'#f59e0b', orangeBg:'#f59e0b12', blue:'#38bdf8', blueBg:'#38bdf812',
+    purple:'#818cf8', purpleBg:'#818cf812', cyan:'#06b6d4', consoleBg:'#02090f' },
+  nord: { name:'Nord', bg:'#1a1e2e', bgCard:'#222639', bgInput:'#1c2032', bgHover:'#282d42',
+    border:'#333a55', borderLight:'#3d4568', text:'#cdd6f4', textDim:'#a6adc8', textMuted:'#6c7086',
+    textBright:'#e6e9f5', accent:'#89b4fa', accentBg:'#89b4fa10', red:'#f38ba8', redBg:'#f38ba812',
+    redBorder:'#f38ba830', orange:'#fab387', orangeBg:'#fab38712', blue:'#89dceb', blueBg:'#89dceb12',
+    purple:'#cba6f7', purpleBg:'#cba6f712', cyan:'#89dceb', consoleBg:'#141827' },
+  cyberpunk: { name:'Cyberpunk', bg:'#090010', bgCard:'#0f0018', bgInput:'#0b0014', bgHover:'#160028',
+    border:'#240042', borderLight:'#340060', text:'#e8d0ff', textDim:'#9860c8', textMuted:'#583878',
+    textBright:'#f8f0ff', accent:'#e040fb', accentBg:'#e040fb10', red:'#ff2060', redBg:'#ff206012',
+    redBorder:'#ff206030', orange:'#ffea00', orangeBg:'#ffea0012', blue:'#00e5ff', blueBg:'#00e5ff12',
+    purple:'#b000ff', purpleBg:'#b000ff12', cyan:'#00e5ff', consoleBg:'#050008' },
+  rose: { name:'Rose', bg:'#0d0508', bgCard:'#180a10', bgInput:'#110608', bgHover:'#200e18',
+    border:'#301525', borderLight:'#402030', text:'#f0d0d8', textDim:'#b08090', textMuted:'#705060',
+    textBright:'#fce8f0', accent:'#f472b6', accentBg:'#f472b610', red:'#fb7185', redBg:'#fb718512',
+    redBorder:'#fb718530', orange:'#fbbf24', orangeBg:'#fbbf2412', blue:'#60a5fa', blueBg:'#60a5fa12',
+    purple:'#e879f9', purpleBg:'#e879f912', cyan:'#f0abfc', consoleBg:'#080304' },
+  slate: { name:'Slate', bg:'#0a0c10', bgCard:'#111318', bgInput:'#0d0f14', bgHover:'#181c24',
+    border:'#22262e', borderLight:'#2a3040', text:'#c0c8d8', textDim:'#788090', textMuted:'#485060',
+    textBright:'#e0e4f0', accent:'#60a5fa', accentBg:'#60a5fa10', red:'#f87171', redBg:'#f8717112',
+    redBorder:'#f8717130', orange:'#fbbf24', orangeBg:'#fbbf2412', blue:'#93c5fd', blueBg:'#93c5fd12',
+    purple:'#a78bfa', purpleBg:'#a78bfa12', cyan:'#7dd3fc', consoleBg:'#060709' },
+  solarized: { name:'Solarized', bg:'#001820', bgCard:'#002030', bgInput:'#001c28', bgHover:'#002a3c',
+    border:'#003848', borderLight:'#004858', text:'#839496', textDim:'#586e75', textMuted:'#405860',
+    textBright:'#fdf6e3', accent:'#2aa198', accentBg:'#2aa19810', red:'#dc322f', redBg:'#dc322f12',
+    redBorder:'#dc322f30', orange:'#cb4b16', orangeBg:'#cb4b1612', blue:'#268bd2', blueBg:'#268bd212',
+    purple:'#6c71c4', purpleBg:'#6c71c412', cyan:'#2aa198', consoleBg:'#001018' },
+  zinc: { name:'Zinc', bg:'#0f0f12', bgCard:'#1a1a1e', bgInput:'#131316', bgHover:'#202026',
+    border:'#2c2c34', borderLight:'#383840', text:'#ededef', textDim:'#a8a8b4', textMuted:'#64646e',
+    textBright:'#f8f8fa', accent:'#4d9fff', accentBg:'#4d9fff10', red:'#f87171', redBg:'#f8717112',
+    redBorder:'#f8717130', orange:'#fb923c', orangeBg:'#fb923c12', blue:'#60a5fa', blueBg:'#60a5fa12',
+    purple:'#a78bfa', purpleBg:'#a78bfa12', cyan:'#22d3ee', consoleBg:'#0a0a0d' },
+  charcoal: { name:'Charcoal', bg:'#0f1218', bgCard:'#161d28', bgInput:'#131720', bgHover:'#1d2638',
+    border:'#252e42', borderLight:'#303d54', text:'#cdd6e8', textDim:'#7e90b0', textMuted:'#4e5c78',
+    textBright:'#e8f0fc', accent:'#818cf8', accentBg:'#818cf810', red:'#f87171', redBg:'#f8717112',
+    redBorder:'#f8717130', orange:'#fbbf24', orangeBg:'#fbbf2412', blue:'#60a5fa', blueBg:'#60a5fa12',
+    purple:'#c084fc', purpleBg:'#c084fc12', cyan:'#38bdf8', consoleBg:'#080c12' },
+  copper: { name:'Copper', bg:'#0f0c09', bgCard:'#1a1510', bgInput:'#130f0c', bgHover:'#221c16',
+    border:'#2e2318', borderLight:'#3c3022', text:'#f0ddc8', textDim:'#b09070', textMuted:'#6e5040',
+    textBright:'#faf0e0', accent:'#e8902a', accentBg:'#e8902a10', red:'#ef5350', redBg:'#ef535012',
+    redBorder:'#ef535030', orange:'#f0a030', orangeBg:'#f0a03012', blue:'#64b5f6', blueBg:'#64b5f612',
+    purple:'#ce93d8', purpleBg:'#ce93d812', cyan:'#4dd0e1', consoleBg:'#080806' },
+  sage: { name:'Sage', bg:'#0c1210', bgCard:'#131c18', bgInput:'#0f1614', bgHover:'#1a2420',
+    border:'#223028', borderLight:'#2c3e34', text:'#c8d8cc', textDim:'#7a9880', textMuted:'#4a6252',
+    textBright:'#e2f0e6', accent:'#5aab88', accentBg:'#5aab8810', red:'#f87171', redBg:'#f8717112',
+    redBorder:'#f8717130', orange:'#fb923c', orangeBg:'#fb923c12', blue:'#60a5fa', blueBg:'#60a5fa12',
+    purple:'#a78bfa', purpleBg:'#a78bfa12', cyan:'#22d3ee', consoleBg:'#080d0b' },
+  linen: { name:'Linen', bg:'#f4f0e8', bgCard:'#fefaf2', bgInput:'#ece8d8', bgHover:'#e4dece',
+    border:'#cbc5b0', borderLight:'#dcd6c4', text:'#2c2416', textDim:'#5e5040', textMuted:'#9a8a70',
+    textBright:'#18100a', accent:'#7b5e28', accentBg:'#7b5e2810', red:'#b83232', redBg:'#b8323212',
+    redBorder:'#b8323230', orange:'#c55f0a', orangeBg:'#c55f0a12', blue:'#1e60b0', blueBg:'#1e60b012',
+    purple:'#6e38a0', purpleBg:'#6e38a012', cyan:'#137080', consoleBg:'#201c18' },
+}
+export const TEXT_SIZES = { S:{base:10,label:9,value:16,stat:9,input:11,code:10,nav:10}, M:{base:12,label:10,value:20,stat:10,input:12,code:11,nav:11}, L:{base:14,label:12,value:26,stat:12,input:14,code:13,nav:13}, XL:{base:16,label:13,value:32,stat:13,input:16,code:14,nav:14}, XXL:{base:18,label:14,value:38,stat:14,input:18,code:15,nav:15} }
+
+export const SRC_COLORS={SCRIPT:'#b388ff',WORLD:'#64b5f6',NETWORK:'#4dd0e1',RCON:'#ffa502',SYSTEM:'#90a4ae',AI_GM:'#69f0ae',PLAYER:'#fff176',MOD:'#f48fb1'}
+export const SRC_LABELS={SCRIPT:'SCR',WORLD:'WLD',NETWORK:'NET',RCON:'RCON',SYSTEM:'SYS',AI_GM:'AI',PLAYER:'PLR',MOD:'MOD'}
+export const LVL={FATAL:{c:'#ff1744',i:'!!'},ERROR:{c:'#ff4757',i:'X'},WARN:{c:'#ffa502',i:'!'},INFO:{c:'#5a6a7a',i:'.'},DEBUG:{c:'#384858',i:'>'},CMD:{c:'#69f0ae',i:'>'}}
+
+export const ROLE_TABS={owner:['dashboard','console','startup','admin','config','mods','files','webhooks','network','aigm','scheduler'],head_admin:['dashboard','console','startup','admin','config','mods','files','webhooks','network','aigm','scheduler'],admin:['dashboard','console','startup','admin','config','mods','files','webhooks','network','aigm','scheduler'],moderator:['dashboard','console','startup','admin','network'],viewer:['dashboard'],demo:['dashboard','console','admin','mods']}
+export const ROLE_COLORS={owner:'default',head_admin:'danger',admin:'info',moderator:'warning',viewer:'dim',demo:'dim'}
+
+export const DISCORD_BLURPLE='#5865F2'
+
+export const KNOWN_ADMIN_MODS={'5AAAC70D754245DD':'sat','68DC33B21E340EA1':'mat'}
+
+export const VANILLA_SCENARIOS = [
+  { id:'{ECC61978EDCC2B5A}Missions/23_Campaign.conf',              label:'Conflict — Everon',                    mode:'Conflict' },
+  { id:'{C700DB41F0C546E1}Missions/23_Campaign_NorthCentral.conf', label:'Conflict — Northern Everon',           mode:'Conflict' },
+  { id:'{28802845ADA64D52}Missions/23_Campaign_SWCoast.conf',      label:'Conflict — Southern Everon',           mode:'Conflict' },
+  { id:'{94992A3D7CE4FF8A}Missions/23_Campaign_Western.conf',      label:'Conflict — Western Everon',            mode:'Conflict' },
+  { id:'{FDE33AFE2ED7875B}Missions/23_Campaign_Montignac.conf',    label:'Conflict — Montignac',                 mode:'Conflict' },
+  { id:'{C41618FD18E9D714}Missions/23_Campaign_Arland.conf',       label:'Conflict — Arland',                    mode:'Conflict' },
+  { id:'{59AD59368755F41A}Missions/21_GM_Eden.conf',               label:'Game Master — Everon',                 mode:'GM' },
+  { id:'{2BBBE828037C6F4B}Missions/22_GM_Arland.conf',             label:'Game Master — Arland',                 mode:'GM' },
+  { id:'{F45C6C15D31252E6}Missions/27_GM_Cain.conf',               label:'Game Master — Kolguyev',               mode:'GM' },
+  { id:'{DFAC5FABD11F2390}Missions/26_CombatOpsEveron.conf',       label:'Combat Ops — Everon',                  mode:'CombatOps' },
+  { id:'{DAA03C6E6099D50F}Missions/24_CombatOps.conf',             label:'Combat Ops — Arland',                  mode:'CombatOps' },
+  { id:'{CB347F2F10065C9C}Missions/CombatOpsCain.conf',            label:'Combat Ops — Kolguyev',                mode:'CombatOps' },
+  { id:'{0220741028718E7F}Missions/23_Campaign_HQC_Everon.conf',   label:'Conflict: HQ Commander — Everon',      mode:'HQC' },
+  { id:'{68D1240A11492545}Missions/23_Campaign_HQC_Arland.conf',   label:'Conflict: HQ Commander — Arland',      mode:'HQC' },
+  { id:'{BB5345C22DD2B655}Missions/23_Campaign_HQC_Cain.conf',     label:'Conflict: HQ Commander — Kolguyev',    mode:'HQC' },
+  { id:'{3F2E005F43DBD2F8}Missions/CAH_Briars_Coast.conf',         label:'Capture & Hold — Briars Coast',        mode:'C&H' },
+  { id:'{F1A1BEA67132113E}Missions/CAH_Castle.conf',               label:'Capture & Hold — Montfort Castle',     mode:'C&H' },
+  { id:'{589945FB9FA7B97D}Missions/CAH_Concrete_Plant.conf',       label:'Capture & Hold — Concrete Plant',      mode:'C&H' },
+  { id:'{9405201CBD22A30C}Missions/CAH_Factory.conf',              label:'Capture & Hold — Almara Factory',      mode:'C&H' },
+  { id:'{1CD06B409C6FAE56}Missions/CAH_Forest.conf',               label:"Capture & Hold — Simon's Wood",        mode:'C&H' },
+  { id:'{7C491B1FCC0FF0E1}Missions/CAH_LeMoule.conf',              label:'Capture & Hold — Le Moule',            mode:'C&H' },
+  { id:'{6EA2E454519E5869}Missions/CAH_Military_Base.conf',        label:'Capture & Hold — Camp Blake',          mode:'C&H' },
+  { id:'{2B4183DF23E88249}Missions/CAH_Morton.conf',               label:'Capture & Hold — Morton',              mode:'C&H' },
+  { id:'{C47A1A6245A13B26}Missions/SP01_ReginaV2.conf',            label:'Elimination',                          mode:'SP' },
+  { id:'{0648CDB32D6B02B3}Missions/SP02_AirSupport.conf',          label:'Air Support',                          mode:'SP' },
+  { id:'{10B8582BAD9F7040}Missions/Scenario01_Intro.conf',         label:'Omega 01 — Over The Hills',            mode:'Omega' },
+  { id:'{1D76AF6DC4DF0577}Missions/Scenario02_Steal.conf',         label:'Omega 02 — Radio Check',               mode:'Omega' },
+  { id:'{D1647575BCEA5A05}Missions/Scenario03_Villa.conf',         label:'Omega 03 — Light In The Dark',         mode:'Omega' },
+  { id:'{6D224A109B973DD8}Missions/Scenario04_Sabotage.conf',      label:'Omega 04 — Red Silence',               mode:'Omega' },
+  { id:'{FA2AB0181129CB16}Missions/Scenario05_Hill.conf',          label:'Omega 05 — Cliffhanger',               mode:'Omega' },
+  { id:'{002AF7323E0129AF}Missions/Tutorial.conf',                  label:'Training',                             mode:'Tutorial' },
+]
+
+export const WS_TAGS=['terrains','weapons','vehicles','structures','characters','animals','vegetation','props','compositions','scenarios_SP','Scenarios_MP','systems','effects','misc']
+
+export const TC={cyan:'#22d3ee',red:'#ef4444',green:'#22c55e',yellow:'#eab308',orange:'#f97316',purple:'#a78bfa',blue:'#60a5fa',
+  cyanDim:'rgba(34,211,238,0.1)',redDim:'rgba(239,68,68,0.1)',greenDim:'rgba(34,197,94,0.1)',
+  yellowDim:'rgba(234,179,8,0.1)',purpleDim:'rgba(167,139,250,0.1)',
+  cyanBorder:'rgba(34,211,238,0.25)',redBorder:'rgba(239,68,68,0.25)',greenBorder:'rgba(34,197,94,0.25)',
+  yellowBorder:'rgba(234,179,8,0.25)',purpleBorder:'rgba(167,139,250,0.25)',
+  bg:'#09090b',surface:'rgba(24,24,27,0.95)',surface2:'#27272a',border:'rgba(63,63,70,0.6)',borderDim:'rgba(39,39,42,0.8)',
+  text:'#e4e4e7',textDim:'#71717a',textMuted:'#52525b'}
+export const ESC_NAMES=['QUIET','PROBING','ENGAGED','ASSAULT','OVERWHELM']
+export const ESC_DESC=['AI holds back — minimal activity','Light patrols — testing boundaries','Active contact — threats escalating','Full assault — multi-element attack','Maximum pressure — overwhelming force']
+export const ESC_COLORS=[TC.green,TC.cyan,TC.yellow,TC.red,TC.purple]
+
+export const TABS=[{id:'dashboard',label:'Dashboard',group:'Server',icon:'⊡',short:'Dash'},{id:'console',label:'Console',group:'Server',icon:'▦',short:'Logs'},{id:'startup',label:'Startup',group:'Server',icon:'▶',short:'Start'},{id:'config',label:'Config',group:'Configuration',icon:'⊙',short:'Config'},{id:'mods',label:'Mods',group:'Configuration',icon:'⊞',short:'Mods'},{id:'files',label:'Files',group:'Configuration',icon:'⊟',short:'Files'},{id:'admin',label:'Admin',group:'Tools',icon:'⊕',short:'Admin'},{id:'webhooks',label:'Webhooks',group:'Tools',icon:'⊗',short:'Hooks'},{id:'network',label:'Network',group:'Tools',icon:'⊘',short:'Net'},{id:'aigm',label:'AI GM',group:'Tools',icon:'⊛',short:'AI GM'},{id:'scheduler',label:'Scheduler',group:'Tools',icon:'⊚',short:'Sched'}]
