@@ -1,5 +1,29 @@
 # SITREP Panel — Claude Code Context
 
+## Branch policy — read this before doing anything
+
+**Never commit to `main`. Never push to `main`. Never merge to `main`.**
+
+All work — Claude Code sessions, scripted edits, anything automated — goes on the `dev` branch. The user is the only one who promotes `dev` to `main`, and only after manually verifying the changes.
+
+The flow:
+1. `git checkout dev` (or `git checkout -b dev origin/dev` if it doesn't exist locally)
+2. Make changes, commit on `dev`
+3. `git push origin dev`
+4. Stop. Tell the user the work is ready on `dev` for review.
+5. The user (not Claude) decides when and how to merge `dev` into `main`.
+
+If `main` is currently checked out when a session starts, switch to `dev` before making any edits.
+
+## Live system safety
+
+This repo lives at `/opt/panel/` and **is the running production panel**. The systemd service `sitrep-api.service` serves directly from this directory.
+
+- The backend Python venv at `/opt/panel/backend/venv/` is **load-bearing**. Do not delete, rename, or recreate it without first stopping the service and having a tested rebuild plan ready. A previous session wiped it and left the service running as a zombie process holding deleted file handles.
+- The systemd unit at `/etc/systemd/system/sitrep-api.service` hardcodes `/opt/panel/backend/venv/bin/uvicorn`. If you migrate to a different venv layout (uv, .venv, etc.), the unit file MUST be updated in the same change.
+- `httpx` calls in `backend/main.py` rely on `certifi` being present in the venv. If certifi is missing, SSL verification fails with `unable to get local issuer certificate` even though the system CA store is fine.
+- When testing commands, use `/tmp/` — never `mkdir`/`touch` placeholder files inside `/opt/panel/`. If a plan template has example paths like `bin/`, `python`, `.env_new`, `data_new/`, **substitute the real paths before running** rather than creating literal stubs in the repo.
+
 ## Stack
 - Frontend: React 19 + Tailwind 4 + Recharts (Vite 8, single file `frontend/src/App.jsx` ~5100 lines)
 - Backend: FastAPI + Uvicorn (port 8000) — also serves built frontend static files
