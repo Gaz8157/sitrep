@@ -840,7 +840,6 @@ export default function Tracker({ role }) {
   const mainSplitRef = useRef(null)
   const pollRef = useRef(null)
   const wsRef = useRef(null)
-  const wsFailed = useRef(false)
   const mountedRef = useRef(true)
 
   const persistDensity = (d) => { setDensity(d); try { localStorage.setItem('tracker-density', d) } catch {} }
@@ -874,11 +873,21 @@ export default function Tracker({ role }) {
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
     const ws = new WebSocket(`${proto}://${window.location.host}/ws/tracker`)
     wsRef.current = ws
-    ws.onopen = () => { wsFailed.current = false }
+    ws.onopen = () => {}
     ws.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data)
-        if (msg.type === 'snapshot') {
+        if (msg.type === 'init') {
+          setData(prev => {
+            if (!prev?.mod_server_id) return prev
+            const sid = prev.mod_server_id
+            return {
+              ...prev,
+              snapshots: (msg.snapshots || []).filter(p => p._server_id === sid),
+              events:    (msg.events   || []).filter(ev => ev.server_id  === sid),
+            }
+          })
+        } else if (msg.type === 'snapshot') {
           setData(prev => {
             if (!prev?.mod_server_id) return prev
             if (msg.server_id && prev.mod_server_id !== msg.server_id) return prev
@@ -898,7 +907,7 @@ export default function Tracker({ role }) {
         }
       } catch {}
     }
-    ws.onerror = () => { wsFailed.current = true }
+    ws.onerror = () => {}
     ws.onclose = () => { if (mountedRef.current) setTimeout(connectWs, 5000) }
   }, [])
 

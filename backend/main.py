@@ -514,8 +514,8 @@ def _tracker_events_deque(mod_id: str) -> deque:
         _TRACKER_RECENT_EVENTS[mod_id] = dq
     return dq
 
-def _prune_stale_players(mod_id: str):
-    ttl = _tracker_load_settings().get("snapshot_ttl_sec", 0)
+def _prune_stale_players(mod_id: str, settings: dict):
+    ttl = settings.get("snapshot_ttl_sec", 0)
     if ttl <= 0:
         return
     cutoff = time.time() - ttl
@@ -5951,8 +5951,8 @@ async def tracker_track(request: Request):
             if uid:
                 slot[uid] = {**p, "_server_id": mod_id, "_ts": ts}
         _TRACKER_LAST_RX[mod_id] = time.time()
-    _prune_stale_players(mod_id)
     settings = _tracker_load_settings()
+    _prune_stale_players(mod_id, settings)
     if settings["sqlite_enabled"]:
         _tracker_db_init()
         await asyncio.to_thread(_tracker_db_write_snapshot, payload, settings)
