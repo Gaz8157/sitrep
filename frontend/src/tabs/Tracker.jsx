@@ -739,7 +739,7 @@ export default function Tracker({ role }) {
   const mainSplitRef = useRef(null)
   const pollRef = useRef(null)
 
-  const persistDensity = (d) => { persistDensity(d); try { localStorage.setItem('tracker-density', d) } catch {} }
+  const persistDensity = (d) => { setDensity(d); try { localStorage.setItem('tracker-density', d) } catch {} }
   const persistEventsPos = (p) => { setEventsDockPos(p); try { localStorage.setItem('tracker-events-pos', p) } catch {} }
   const persistEventsSize = (n) => { setEventsSize(n); try { localStorage.setItem('tracker-events-size', String(n)) } catch {} }
 
