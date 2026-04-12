@@ -10,46 +10,40 @@ Optional feature for the SITREP panel. Displays live player positions, 8/10-digi
 ## Install
 
 ```bash
-bash /opt/panel/tools/player-tracker/install.sh
+sudo bash /opt/panel/tools/player-tracker/install.sh
 ```
 
-The script will:
-1. Find your panel `.env` automatically
+The installer will:
+1. Find your panel and `.env` automatically
 2. Generate a `PLAYERTRACKER_API_KEY` if one isn't set
-3. Restart the panel service
-4. Ask for your Arma server profile path (optional — only needed if Arma is on the same machine)
-5. Write a `config.cfg` to `$profile:PlayerTracker/config.cfg` if a local path was given
-6. Print your API key and setup instructions
+3. Restart the panel service to apply the key
+4. Ask for your Arma server profile path
+5. Write `$profile:PlayerTracker/config.cfg` with your panel URL and key
+6. Print your key and final setup instructions
 
-If your panel is installed to a non-default location:
-
+If your panel is at a non-default location:
 ```bash
-PANEL_DIR=/your/panel/path bash /opt/panel/tools/player-tracker/install.sh
+PANEL_DIR=/your/panel/path sudo bash /opt/panel/tools/player-tracker/install.sh
 ```
 
-## Config file (recommended)
+## How the API key works
 
-The mod reads `$profile:PlayerTracker/config.cfg` on startup. If the file exists, it overrides the Workbench attribute values — no Workbench editing required.
+The panel generates a unique key. The mod must send the same key with every request — the panel rejects anything that doesn't match. The installer writes the correct key into the mod's config file automatically. If the Arma server is on a different machine, copy the key from the installer output into `$profile:PlayerTracker/config.cfg` on the Arma server.
 
-File format:
+## Config file
+
+The mod reads `$profile:PlayerTracker/config.cfg` on startup. On first run it creates this file automatically with placeholder values. The installer (or the Mod Setup tab in the panel) overwrites it with the real values.
+
 ```
 # PlayerTracker config
 url=https://yourpanel.com/
-api_key=YOUR_API_KEY
+api_key=YOUR_GENERATED_KEY
+track_path=api/tracker/track
+event_path=api/tracker/event
+update_interval=10
 ```
 
-Drop this file in the `PlayerTracker/` subdirectory of your Arma server's profile folder. The installer writes it automatically if Arma is on the same machine.
-
-## Workbench setup (alternative)
-
-If you prefer Workbench or your Arma server is on a different machine without file access, open your scenario in Arma Reforger Workbench, select the game mode entity, and set the **PlayerTrackerComponent** attributes:
-
-| Attribute | Value |
-|-----------|-------|
-| Webhook base URL | `https://yourpanel.com/` (trailing slash required) |
-| API key | printed by the installer |
-
-The config file takes priority over Workbench values if both are present.
+The **Mod Setup tab** (Tracker → ⚙ → Mod Setup) lets you write this file directly from the panel UI without touching the command line.
 
 ## Full documentation
 
