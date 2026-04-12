@@ -5368,6 +5368,81 @@ async def aigm_bridge_info(request: Request):
         "bridge_exists": AIGM_BRIDGE_PATH.exists(),
     }
 
+AIGM_ENV_PATH = AIGM_BRIDGE_PATH.parent / ".env"
+
+def _read_bridge_env() -> dict:
+    env = {}
+    if not AIGM_ENV_PATH.exists():
+        return env
+    for line in AIGM_ENV_PATH.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith('#') and '=' in line:
+            k, _, v = line.partition('=')
+            env[k.strip()] = v.strip()
+    return env
+
+def _write_bridge_env(updates: dict):
+    lines = []
+    written = set()
+    if AIGM_ENV_PATH.exists():
+        for line in AIGM_ENV_PATH.read_text().splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith('#') and '=' in stripped:
+                k = stripped.partition('=')[0].strip()
+                if k in updates:
+                    lines.append(f"{k}={updates[k]}")
+                    written.add(k)
+                else:
+                    lines.append(line)
+            else:
+                lines.append(line)
+    for k, v in updates.items():
+        if k not in written:
+            lines.append(f"{k}={v}")
+    AIGM_ENV_PATH.write_text('\n'.join(lines) + '\n')
+
+@app.get("/api/aigm/bridge-settings")
+async def aigm_get_bridge_settings(request: Request):
+    denied = require_role(request, "admin")
+    if denied: return denied
+    env = _read_bridge_env()
+    pw = env.get("ARMA_RCON_PASSWORD", "")
+    return {
+        "rcon_host":     env.get("ARMA_RCON_HOST", "127.0.0.1"),
+        "rcon_port":     env.get("ARMA_RCON_PORT", "2302"),
+        "rcon_password": "••••••••" if pw and pw != "change_me" else "",
+        "rcon_password_set": bool(pw and pw != "change_me"),
+        "ollama_url":    env.get("OLLAMA_URL", "http://127.0.0.1:11434"),
+        "ollama_model":  env.get("OLLAMA_MODEL", "qwen2.5:14b"),
+        "env_path":      str(AIGM_ENV_PATH),
+        "env_exists":    AIGM_ENV_PATH.exists(),
+    }
+
+@app.post("/api/aigm/bridge-settings")
+async def aigm_save_bridge_settings(request: Request):
+    denied = require_role(request, "admin")
+    if denied: return denied
+    if not AIGM_ENV_PATH.exists():
+        return JSONResponse({"error": "Bridge .env not found — run the AI GM installer first."}, status_code=404)
+    body = await request.json()
+    updates = {}
+    if body.get("rcon_host"):     updates["ARMA_RCON_HOST"]     = body["rcon_host"]
+    if body.get("rcon_port"):     updates["ARMA_RCON_PORT"]     = str(body["rcon_port"])
+    if body.get("rcon_password"): updates["ARMA_RCON_PASSWORD"] = body["rcon_password"]
+    if body.get("ollama_url"):    updates["OLLAMA_URL"]         = body["ollama_url"]
+    if body.get("ollama_model"):  updates["OLLAMA_MODEL"]       = body["ollama_model"]
+    if not updates:
+        return {"ok": True, "restarted": False}
+    _write_bridge_env(updates)
+    restarted = False
+    try:
+        subprocess.run(["sudo", "systemctl", "restart", "aigm-bridge"],
+                       check=True, capture_output=True, timeout=10)
+        restarted = True
+    except Exception:
+        pass
+    return {"ok": True, "restarted": restarted}
+
 @app.get("/api/aigm/decisions")
 async def aigm_decisions(request: Request, limit: int = 50):
     denied = require_permission(request, "server.control")

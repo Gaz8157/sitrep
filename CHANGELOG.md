@@ -2,6 +2,22 @@
 
 ---
 
+## 2026-04-11 (6)
+
+### frontend/src/tabs/AiGm.jsx
+- Added ⚙ settings button to AI GM tab header — visible in both bridge online and offline states
+- Settings modal covers: RCON host, RCON port, RCON password (masked, show/hide toggle), Ollama URL, Ollama model
+- Password field shows placeholder "Leave blank to keep current" when a password is already set
+- Save writes to bridge `.env` and automatically restarts `aigm-bridge` service
+
+### backend/main.py
+- Added `GET /api/aigm/bridge-settings` — reads bridge `.env`, returns settings with password masked (admin+ only)
+- Added `POST /api/aigm/bridge-settings` — writes updated values to bridge `.env`, restarts `aigm-bridge` via systemd (admin+ only)
+- Added `_read_bridge_env()` and `_write_bridge_env()` helpers — preserve comments and key order in `.env`
+- Password field skips update if left blank (existing password kept)
+
+---
+
 ## 2026-04-11 (5)
 
 ### README.md
