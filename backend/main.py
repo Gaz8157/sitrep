@@ -1074,10 +1074,27 @@ def get_system_stats():
     cpu_pct = psutil.cpu_percent(interval=0.1)
     cpu_freq = psutil.cpu_freq()
     cpu_temp = 0
+    gpu_temp_psutil = 0
     try:
-        for name, entries in psutil.sensors_temperatures().items():
-            for e in entries:
-                if e.current > cpu_temp: cpu_temp = int(e.current)
+        all_temps = psutil.sensors_temperatures() or {}
+        cpu_keys = {"k10temp", "coretemp", "cpu_thermal", "acpitz"}
+        gpu_keys = {"amdgpu", "radeon", "nouveau"}
+        for name, entries in all_temps.items():
+            nl = name.lower()
+            if any(k in nl for k in cpu_keys):
+                for e in entries:
+                    if e.current and e.current > cpu_temp:
+                        cpu_temp = int(e.current)
+            elif any(k in nl for k in gpu_keys):
+                for e in entries:
+                    if e.current and e.current > gpu_temp_psutil:
+                        gpu_temp_psutil = int(e.current)
+        if not cpu_temp:
+            for name, entries in all_temps.items():
+                if name.lower() not in {"nvme", "mt7925_phy0"} and "phy" not in name.lower():
+                    for e in entries:
+                        if e.current and e.current > cpu_temp:
+                            cpu_temp = int(e.current)
     except: pass
     mem = psutil.virtual_memory()
     disks = _get_disk_stats()
@@ -1092,20 +1109,24 @@ def get_system_stats():
                     "vram_used":round(float(p[3])/1024,1),"vram_total":round(float(p[4])/1024,1),
                     "power":int(float(p[5]))}
     except: pass
+    if gpu["temp"] == 0 and gpu_temp_psutil:
+        gpu["temp"] = gpu_temp_psutil
     cpu_name = "Unknown"
     try:
         with open("/proc/cpuinfo") as f:
             for line in f:
                 if "model name" in line: cpu_name = line.split(":")[1].strip(); break
     except: pass
-    net = psutil.net_io_counters()
+    per_nic = psutil.net_io_counters(pernic=True)
+    net_sent = sum(c.bytes_sent for n, c in per_nic.items() if n != 'lo')
+    net_recv = sum(c.bytes_recv for n, c in per_nic.items() if n != 'lo')
     now = time.time()
     if _net_prev["ts"] > 0:
         dt = now - _net_prev["ts"]
         if dt > 0:
-            _net_rate["up_mbps"] = round(((net.bytes_sent - _net_prev["sent"])*8)/(dt*1_000_000), 2)
-            _net_rate["down_mbps"] = round(((net.bytes_recv - _net_prev["recv"])*8)/(dt*1_000_000), 2)
-    _net_prev = {"ts": now, "sent": net.bytes_sent, "recv": net.bytes_recv}
+            _net_rate["up_mbps"] = round(((net_sent - _net_prev["sent"])*8)/(dt*1_000_000), 2)
+            _net_rate["down_mbps"] = round(((net_recv - _net_prev["recv"])*8)/(dt*1_000_000), 2)
+    _net_prev = {"ts": now, "sent": net_sent, "recv": net_recv}
     return {
         "cpu": {"name":cpu_name,"usage":round(cpu_pct,1),"temp":cpu_temp,
             "cores":psutil.cpu_count(logical=True),"freq":round(cpu_freq.current) if cpu_freq else 0},
@@ -5054,7 +5075,6 @@ async def remove_crontab(request: Request):
 
 SETTINGS_FILE    = PANEL_DATA / "settings.json"
 SETTINGS_DEFAULTS = {
-    "uploadCapMbps": 120.0,
     "ipqs_api_key": "",
     "discord_client_id": "",
     "discord_client_secret": "",

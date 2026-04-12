@@ -339,7 +339,6 @@ function LayoutTab({userProfile, setUserProfile, toast}) {
     {id:'perf',label:'Performance'},
     {id:'bw',label:'Bandwidth'},
     {id:'storage',label:'Storage'},
-    {id:'bwest',label:'Bandwidth Est.'},
     {id:'players',label:'Players'},
     {id:'stats',label:'Stats'},
   ]
