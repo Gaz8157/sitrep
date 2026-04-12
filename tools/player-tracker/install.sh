@@ -91,9 +91,13 @@ PANEL_URL="${PANEL_URL%/}"
 # ── Arma server profile path ────────────────────────────────────────────────
 echo ""
 info "Arma server profile path setup"
-info "The mod reads \$profile:PlayerTracker/config.cfg to find your panel."
-info "If your Arma server is on THIS machine, enter the profile path below."
-info "If it's on a different machine, leave blank — you'll get a file to copy."
+info "The mod auto-detects its profile location via Arma's built-in \$profile: path."
+info "This step is only needed so the installer can WRITE the config file for you."
+info ""
+info "  Same machine as panel  → enter the absolute path to your Arma profile folder"
+info "  Different machine      → press Enter to skip; the mod will create a template"
+info "                           on first start that you can fill in, or use the"
+info "                           Mod Setup tab in the panel (Tracker → ⚙ → Mod Setup)"
 echo ""
 
 # Check if a path was previously saved
