@@ -18,6 +18,14 @@ echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━�
 echo -e "${CYAN}  SITREP Player Tracker — Setup${NC}"
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
+echo -e "  ${BOLD}What this installer does:${NC}"
+echo -e "   1. Locates your panel and .env"
+echo -e "   2. Generates a PLAYERTRACKER_API_KEY (if not already set)"
+echo -e "   3. Restarts the panel service to apply the key"
+echo -e "   4. Asks for your Arma server profile path"
+echo -e "   5. Writes \$profile:PlayerTracker/config.cfg with your panel URL + key"
+echo -e "   6. Prints final setup instructions"
+echo ""
 
 # Locate the panel
 PANEL_DIR="${PANEL_DIR:-}"

@@ -453,6 +453,7 @@ _LOGIN_LOCKOUT_SECONDS = 900  # 15 minutes
 TRACKER_DB = PANEL_DATA / "tracker.db"
 TRACKER_SETTINGS_FILE = PANEL_DATA / "tracker_settings.json"
 PLAYERTRACKER_API_KEY = os.environ.get("PLAYERTRACKER_API_KEY", "")
+ARMA_PROFILE_PATH     = os.path.expanduser(os.environ.get("ARMA_PROFILE_PATH", ""))
 
 _TRACKER_LATEST_SNAPSHOTS: dict = {}   # mod_server_id -> {uid: snapshot}
 _TRACKER_RECENT_EVENTS: dict = {}       # mod_server_id -> deque
@@ -6342,6 +6343,65 @@ async def tracker_set_mod_id(request: Request):
         return JSONResponse({"error": "Server not found in registry"}, status_code=404)
     save_servers(registry)
     return {"ok": True, "tracker_mod_id": new_id or None}
+
+def _update_panel_env(key: str, value: str):
+    lines = []
+    written = False
+    if _env_path.exists():
+        for line in _env_path.read_text().splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith('#') and '=' in stripped:
+                k = stripped.partition('=')[0].strip()
+                if k == key:
+                    lines.append(f"{key}={value}")
+                    written = True
+                else:
+                    lines.append(line)
+            else:
+                lines.append(line)
+    if not written:
+        lines.append(f"{key}={value}")
+    _env_path.write_text('\n'.join(lines) + '\n')
+
+@app.get("/api/tracker/mod-setup")
+async def tracker_mod_setup_get(request: Request):
+    denied = require_role(request, "admin")
+    if denied: return denied
+    profile = ARMA_PROFILE_PATH
+    config_path = str(Path(profile) / "PlayerTracker" / "config.cfg") if profile else None
+    return {
+        "panel_url":        PANEL_URL,
+        "arma_profile_path": profile,
+        "config_path":      config_path,
+        "config_exists":    bool(config_path and Path(config_path).exists()),
+        "workshop_id":      "691608368426C1F2",
+        "api_key_set":      bool(PLAYERTRACKER_API_KEY),
+    }
+
+@app.post("/api/tracker/mod-setup")
+async def tracker_mod_setup_post(request: Request):
+    global ARMA_PROFILE_PATH
+    denied = require_role(request, "admin")
+    if denied: return denied
+    body = await request.json()
+    profile = os.path.expanduser((body.get("arma_profile_path") or "").strip())
+    if not profile:
+        return JSONResponse({"error": "arma_profile_path is required"}, status_code=400)
+    config_dir  = Path(profile) / "PlayerTracker"
+    config_file = config_dir / "config.cfg"
+    try:
+        config_dir.mkdir(parents=True, exist_ok=True)
+        config_file.write_text(
+            "# PlayerTracker config — written by SITREP panel\n"
+            "# Trailing slash required on url\n"
+            f"url={PANEL_URL}/\n"
+            f"api_key={PLAYERTRACKER_API_KEY}\n"
+        )
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    _update_panel_env("ARMA_PROFILE_PATH", profile)
+    ARMA_PROFILE_PATH = profile
+    return {"ok": True, "config_path": str(config_file)}
 
 def _tracker_sqlite_wipe():
     with _TRACKER_DB_LOCK:

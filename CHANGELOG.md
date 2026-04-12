@@ -2,6 +2,27 @@
 
 ---
 
+## 2026-04-11 (8)
+
+### frontend/src/tabs/Tracker.jsx
+- Added `Mod Setup` tab to Tracker Settings modal — opens by default
+- Shows numbered setup steps (add Workshop mod → write config → restart Arma)
+- Profile path input writes `$profile:PlayerTracker/config.cfg` via the panel (no shell access needed)
+- Displays panel URL and API key status (masked) that will be written to the config
+- Shows manual fallback config block for remote Arma servers
+- Shows confirmation when config file already exists
+
+### backend/main.py
+- Added `GET /api/tracker/mod-setup` — returns panel URL, Arma profile path, config existence, workshop ID (admin+)
+- Added `POST /api/tracker/mod-setup` — writes `config.cfg` to `$ARMA_PROFILE_PATH/PlayerTracker/`, updates `ARMA_PROFILE_PATH` in panel `.env` (admin+)
+- Added `_update_panel_env()` helper — updates or appends a key in `/opt/panel/.env` without destroying other values
+- Added `ARMA_PROFILE_PATH` env var read at startup
+
+### tools/player-tracker/install.sh
+- Added numbered "what this installer does" summary at the top so operators know what to expect
+
+---
+
 ## 2026-04-11 (7)
 
 ### tools/player-tracker/install.sh

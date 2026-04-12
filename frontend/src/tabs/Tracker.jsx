@@ -758,8 +758,120 @@ function DangerTab({ onAfterClear, C, sz }) {
   )
 }
 
+function ModSetupTab({ C, sz }) {
+  const [setup, setSetup] = useState(null)
+  const [profileInput, setProfileInput] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState(null)
+
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch(`${API}/tracker/mod-setup`, { credentials: 'include', headers: getHeaders() })
+      const d = await r.json()
+      setSetup(d)
+      if (d.arma_profile_path) setProfileInput(d.arma_profile_path)
+    } catch {}
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const writeConfig = async () => {
+    setSaving(true); setMsg(null)
+    try {
+      const r = await fetch(`${API}/tracker/mod-setup`, {
+        method: 'POST', credentials: 'include', headers: authHeaders(),
+        body: JSON.stringify({ arma_profile_path: profileInput.trim() })
+      })
+      const d = await r.json()
+      if (d.ok) { setMsg({ ok: true, text: `Config written to ${d.config_path}` }); load() }
+      else setMsg({ ok: false, text: d.error || 'Error' })
+    } catch (e) { setMsg({ ok: false, text: String(e) }) }
+    finally { setSaving(false) }
+  }
+
+  const inp = { width: '100%', background: C.bgInput, border: `1px solid ${C.border}`, color: C.text, borderRadius: 5, padding: '6px 9px', fontSize: sz.stat, outline: 'none', boxSizing: 'border-box' }
+  const lbl = (t) => <div style={{ color: C.textMuted, fontSize: sz.stat - 1, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{t}</div>
+
+  const steps = [
+    { n: 1, text: 'Add Workshop mod to your Arma server mod list', detail: setup?.workshop_id ? `ID: ${setup.workshop_id}` : null },
+    { n: 2, text: 'Enter your Arma server profile path below and click Write Config', detail: 'The mod reads $profile:PlayerTracker/config.cfg on startup' },
+    { n: 3, text: 'Start (or restart) your Arma server', detail: 'The Tracker tab appears within 8 seconds of the first mod POST' },
+  ]
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Setup steps */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {steps.map(s => (
+          <div key={s.n} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+            <div style={{ width: 22, height: 22, borderRadius: '50%', background: C.accent + '20', border: `1px solid ${C.accent}50`, color: C.accent, fontSize: sz.stat - 1, fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>{s.n}</div>
+            <div>
+              <div style={{ color: C.text, fontSize: sz.stat }}>{s.text}</div>
+              {s.detail && <div style={{ color: C.textMuted, fontSize: sz.stat - 1, fontFamily: 'monospace', marginTop: 2 }}>{s.detail}</div>}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ height: 1, background: C.border }} />
+
+      {/* Config file writer */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div>
+          {lbl('Arma Server Profile Path')}
+          <input value={profileInput} onChange={e => setProfileInput(e.target.value)}
+            placeholder='/home/user/.local/share/ArmaReforgerServer/profile'
+            style={inp} />
+          <div style={{ color: C.textMuted, fontSize: sz.stat - 2, marginTop: 4 }}>
+            This is the folder where Arma writes its profile data (used with the -profile launch arg).
+            The mod config will be written to PlayerTracker/config.cfg inside this folder.
+          </div>
+        </div>
+
+        {/* Read-only values being written */}
+        {setup && (
+          <div style={{ background: C.bgInput + '80', borderRadius: 6, padding: '9px 12px', border: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: sz.stat - 1 }}>
+              <span style={{ color: C.textMuted }}>url</span>
+              <span style={{ fontFamily: 'monospace', color: C.accent }}>{setup.panel_url}/</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: sz.stat - 1 }}>
+              <span style={{ color: C.textMuted }}>api_key</span>
+              <span style={{ fontFamily: 'monospace', color: setup.api_key_set ? C.text : '#f87171' }}>{setup.api_key_set ? '••••••••' : 'NOT SET — run installer first'}</span>
+            </div>
+          </div>
+        )}
+
+        <button onClick={writeConfig} disabled={saving || !profileInput.trim()}
+          style={{ padding: '7px 16px', borderRadius: 6, border: `1px solid ${C.accent}60`, background: C.accent + '18', color: C.accent, cursor: saving || !profileInput.trim() ? 'not-allowed' : 'pointer', fontSize: sz.stat, fontWeight: 700, opacity: saving || !profileInput.trim() ? 0.5 : 1, alignSelf: 'flex-start' }}>
+          {saving ? 'Writing…' : 'Write Config File'}
+        </button>
+
+        {msg && <div style={{ color: msg.ok ? '#4ade80' : '#f87171', fontSize: sz.stat - 1 }}>{msg.text}</div>}
+
+        {setup?.config_exists && (
+          <div style={{ color: '#4ade80', fontSize: sz.stat - 1, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span>✓</span><span>Config file exists at {setup.config_path}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Manual fallback */}
+      <div style={{ height: 1, background: C.border }} />
+      <div>
+        <div style={{ color: C.textMuted, fontSize: sz.stat - 1, marginBottom: 6 }}>
+          If your Arma server is on a different machine, drop this file at <span style={{ fontFamily: 'monospace', color: C.accent }}>$profile:PlayerTracker/config.cfg</span> manually:
+        </div>
+        <pre style={{ background: C.bgInput, border: `1px solid ${C.border}`, borderRadius: 5, padding: '8px 10px', fontSize: sz.stat - 1, color: C.text, margin: 0, overflowX: 'auto' }}>
+{`# PlayerTracker config\nurl=${setup?.panel_url || 'https://yourpanel.com'}/\napi_key=${setup?.api_key_set ? '<your key — reveal in Receiver tab>' : 'NOT SET'}`}
+        </pre>
+      </div>
+    </div>
+  )
+}
+
 function SettingsModal({ open, onClose, role, C, sz }) {
-  const [tab, setTab] = useState('receiver')
+  const [tab, setTab] = useState('mod_setup')
   const [settings, setSettings] = useState(null)
   const [keyInfo, setKeyInfo] = useState(null)
   const [status, setStatus] = useState(null)
@@ -783,6 +895,7 @@ function SettingsModal({ open, onClose, role, C, sz }) {
   }
 
   const MODAL_TABS = [
+    { id: 'mod_setup', label: 'Mod Setup' },
     { id: 'receiver', label: 'Receiver' },
     { id: 'forwarding', label: 'Forwarding' },
     { id: 'retention', label: 'Retention' },
@@ -810,6 +923,7 @@ function SettingsModal({ open, onClose, role, C, sz }) {
           })}
         </div>
         <div style={{ flex: 1, overflow: 'auto', padding: 18 }}>
+          {tab === 'mod_setup' && <ModSetupTab C={C} sz={sz} />}
           {tab === 'receiver' && <ReceiverTab keyInfo={keyInfo} onRotate={load} status={status} C={C} sz={sz} />}
           {tab === 'forwarding' && <ForwardingTab settings={settings} onSave={saveSettings} forwardStatus={forwardStatus} C={C} sz={sz} />}
           {tab === 'retention' && <RetentionTab settings={settings} onSave={saveSettings} C={C} sz={sz} />}
