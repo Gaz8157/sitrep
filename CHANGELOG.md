@@ -1,57 +1,117 @@
 # SITREP Panel Changelog
 
-## 2026-04-11 (3)
-
-### tools/player-tracker/install.sh (new)
-- Created tracker setup script: auto-locates panel `.env`, checks/generates `PLAYERTRACKER_API_KEY`, restarts `sitrep-api` if key was newly written, verifies endpoint is reachable, prints API key and Workbench setup instructions
-- Supports `PANEL_DIR=` override for non-default install locations
-- Reads `PANEL_URL` from `.env` to show the correct webhook base URL
-
-### tools/player-tracker/README.md
-- Rewritten: documents requirements, install command, Workbench setup table, and link to main README
-
-### tools/aigm/install.sh
-- Fixed `PANEL_USER=$(id -un)` → `${SUDO_USER:-$(id -un)}` so service runs as the correct user when installer is invoked with sudo
-
-### Backup
-- `/home/mark/backups/sitrep-panel-2026-04-11-pre-installers.tar.gz`
-
----
-
-## 2026-04-11 (2)
-
-### backend/main.py
-- Added `os.path.expanduser()` to `AIGM_DIR` and `AIGM_BRIDGE_PATH` reads so `~/` notation works if set in `.env`
-
-### README.md
-- AI GM Step 4 rewritten: removed hardcoded `/home/YOUR_USERNAME/` paths; panel auto-detects `~/AIGameMaster`, step now only documents the custom-path override
-- Manual install: changed `User=YOUR_USERNAME` heredoc to `User=$(id -un)` (unquoted heredoc so it expands at run time)
-- Troubleshooting: replaced `sudo -u YOUR_USERNAME` with `sudo -u "$(id -un)"`
-
-### .env.example
-- Added commented `AIGM_DIR` and `AIGM_BRIDGE_PATH` entries documenting the optional custom-path overrides
-
 ---
 
 ## 2026-04-11
 
-### README.md
-- Removed Mercury Enable / ATAK feed references from Player Tracker feature list and section description — Mercury has no connection to this panel
-- Removed AAR replay claim from Player Tracker description — the panel tracker is in-memory only, replay is not implemented
-- Removed ghost `sitrep-tracker.service` references from the purge/uninstall block — that service does not exist
+### Summary
+Full session covering: auth fix, tools bundling, tracker/relay cleanup, dashboard panel removal, bandwidth and temp sensor fixes, docs overhaul, hardcoded path removal, and installer creation for both optional features.
 
-### tools/player-tracker/
-- Removed `install.sh` and `mod/PlayerTrackerComponent.c` — mod is published to Workshop (ID `691608368426C1F2`), source does not belong in this repo
-- Added `README.md` — Workshop ID pointer with reference to main README for full setup guide
+**Commits ahead of main:** `9a9294f` → `70b39fd` (7 commits)
+**Backups:**
+- `/home/mark/backups/sitrep-panel-2026-04-11-pre-rebuild.tar.gz` — pre-rebuild snapshot (commit `f3feaee`)
+- `/home/mark/backups/sitrep-panel-2026-04-11-pre-installers.tar.gz` — pre-installer snapshot (commit `f3feaee`)
 
-### frontend/src/tabs/Dashboard.jsx
-- Removed BW Estimate dock/float panel (`bwest`) entirely — hardcoded 120 Mbps cap made it meaningless for users with different upload limits
-- Removed `bwest` entry from `PANEL_LABELS`
+---
 
-### frontend/src/tabs/Profile.jsx
-- Removed `bwest` from `PANEL_DEFS` in the Layout tab
+### Auth
 
-### backend/main.py
-- Removed `uploadCapMbps` from `SETTINGS_DEFAULTS` (no longer used)
-- Fixed bandwidth rate calculation: `net_io_counters()` was summing all interfaces including loopback (`lo`), causing upload and download to show identical values. Now uses `pernic=True` and sums only non-loopback interfaces
-- Fixed CPU/GPU temp sensor reading: now targets `k10temp`/`coretemp` specifically for CPU temp and `amdgpu` for GPU temp instead of reading arbitrary sensors
+**`frontend/src/tabs/Auth.jsx`** — `9a9294f`
+- Fixed 2FA input rejecting backup codes: `maxLength` was 8 (TOTP length), blocking the 17-character backup code format; `inputMode` was `numeric`, blocking the hex letters in backup codes. Both fixed.
+
+---
+
+### Dashboard
+
+**`frontend/src/tabs/Dashboard.jsx`** — `29247ca`
+- Removed BW Estimate (`bwest`) floating panel and inline docked card entirely. The panel showed a hardcoded 120 Mbps upload cap estimate that was meaningless for users with different connections.
+- Removed `bwest` from `PANEL_LABELS`.
+
+**`frontend/src/tabs/Profile.jsx`** — `29247ca`
+- Removed `bwest` from `PANEL_DEFS` in the Layout tab so it no longer appears as a layout option.
+
+---
+
+### Backend
+
+**`backend/main.py`** — `29247ca`
+- Removed `uploadCapMbps` from `SETTINGS_DEFAULTS` (no longer referenced).
+- Fixed bandwidth rate calculation: `net_io_counters()` was aggregating all interfaces including loopback (`lo`), causing upload and download rates to mirror each other under any loopback traffic. Changed to `pernic=True` summing only non-`lo` interfaces — matches the pattern already used in the network endpoint.
+- Fixed CPU/GPU temperature sensor reading: was reading arbitrary sensor entries; now specifically targets `k10temp`/`coretemp` for CPU temp and `amdgpu` for GPU temp.
+
+**`backend/main.py`** — `2e5d1ad`
+- System tab and `GET /api/system/diagnostics` opened to all authenticated roles (was owner-only).
+- Added `POST /api/system/fix/{check_id}` endpoint for admin+ roles to trigger auto-fix handlers.
+- Added auto-fix handlers for `panel_data_writable`, `aigm_bridge_service`.
+- Added new diagnostic checks: `ollama_reachable`, `aigm-bridge.service`.
+- Removed dead `player_tracker_service` diagnostic check and its auto-fix handler — no such service exists; the real failure mode is a missing `PLAYERTRACKER_API_KEY`.
+
+**`backend/main.py`** — `fab7b2e`
+- Replaced `player_tracker_service` systemd check with `PLAYERTRACKER_API_KEY` configured check.
+
+**`backend/main.py`** — `f3feaee`
+- Wrapped `AIGM_DIR` and `AIGM_BRIDGE_PATH` env var reads in `os.path.expanduser()` so `~/` notation works when set manually in `.env`.
+
+---
+
+### Tools — AI GM
+
+**`tools/aigm/`** — `2e5d1ad`
+- Bundled full AI GM bridge: `bridge.py`, `data/`, `tests/`, `AIGameMaster/dashboard/` source.
+- Added `tools/aigm/install.sh` — sets up Python venv, installs deps, checks Ollama, pulls configured model, registers `aigm-bridge` as a systemd service.
+- Added `tools/aigm/AIGameMaster/.env.example` and `tools/aigm/AIGameMaster/dashboard/.env.local.example` with placeholder values (no live credentials).
+- Added `requirements.txt` (was missing from source repo).
+
+**`tools/aigm/install.sh`** — `70b39fd`
+- Fixed `PANEL_USER=$(id -un)` → `${SUDO_USER:-$(id -un)}` so the systemd service runs as the correct non-root user when the installer is invoked with `sudo`.
+
+**`scripts/install-aigm.sh`** — `2e5d1ad`
+- Switched from GitHub `git clone` to the bundled `tools/aigm/` path.
+- Fixed `AIGM_BRIDGE_PATH` env var (old script was writing `AIGM_DIR` which the backend does not read for bridge path).
+
+---
+
+### Tools — Player Tracker
+
+**`tools/player-tracker/`** — `2e5d1ad` → `fab7b2e` → `26cbcda` → `70b39fd`
+
+Evolution across commits:
+1. `2e5d1ad` — Added a scratch `Relay/server.py` (standalone receiver). Wrong approach — panel backend already has all tracker endpoints built in.
+2. `fab7b2e` — Removed `Relay/` entirely. Added `mod/PlayerTrackerComponent.c` (from tested standalone zip) and a first-pass `install.sh`.
+3. `26cbcda` — Removed `mod/PlayerTrackerComponent.c` (mod is published to Workshop ID `691608368426C1F2`, source doesn't belong in panel repo). Removed `install.sh`. Added stub `README.md`.
+4. `70b39fd` — Created proper `install.sh` (see below). Rewrote `README.md`.
+
+**`tools/player-tracker/install.sh`** — `70b39fd` (final)
+- Auto-locates panel at `/opt/panel` (or `PANEL_DIR=` override).
+- Checks for `PLAYERTRACKER_API_KEY` in panel `.env`; generates and appends one if absent.
+- Restarts `sitrep-api` if a new key was written.
+- Verifies `/api/tracker/status` is reachable.
+- Reads `PANEL_URL` from `.env` and prints full Workbench setup instructions with the actual webhook URL and key.
+
+**`tools/player-tracker/README.md`** — `70b39fd` (final)
+- Documents requirements, install command, `PANEL_DIR=` override, Workbench attribute table, and link to main README.
+
+**`frontend/src/tabs/System.jsx`** — `fab7b2e`
+- Removed `player_tracker_service` from `AUTO_FIXABLE` set (service does not exist).
+
+---
+
+### Docs / README
+
+**`README.md`** — `26cbcda`
+- Removed Mercury Enable / ATAK feed references from Player Tracker feature list and section — Mercury has no connection to this panel.
+- Removed AAR replay claim from Player Tracker section — the panel tracker is in-memory only, no replay implemented.
+- Removed ghost `sitrep-tracker.service` entries from the purge/uninstall block — that service has never existed.
+
+**`README.md`** — `f3feaee`
+- AI GM Step 4 rewritten: removed hardcoded `/home/YOUR_USERNAME/` paths. Panel auto-detects `~/AIGameMaster`; step now only documents the custom-path override.
+- Manual install block: changed `User=YOUR_USERNAME` in single-quoted heredoc to `User=$(id -un)` in unquoted heredoc so it expands at run time.
+- Troubleshooting: replaced `sudo -u YOUR_USERNAME` with `sudo -u "$(id -un)"`.
+
+**`.env.example`** — `f3feaee`
+- Added commented `AIGM_DIR` and `AIGM_BRIDGE_PATH` entries with note that panel auto-detects `~/AIGameMaster`.
+
+**`docs/`** — `2e5d1ad`
+- Reorganized session docs into `docs/2026-04-10/` and `docs/2026-04-11/` date subdirs.
+- Added backend audit docs under `docs/2026-04-11/backend/`.
+- Added `docs/2026-04-11/tools/tools-integration.md`.
