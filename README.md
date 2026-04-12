@@ -124,13 +124,13 @@ cp .env.example .env
 nano .env   # set PANEL_URL to your server's address
 
 # Systemd service
-sudo tee /etc/systemd/system/sitrep-api.service > /dev/null << 'EOF'
+sudo tee /etc/systemd/system/sitrep-api.service > /dev/null << EOF
 [Unit]
 Description=SITREP Panel
 After=network.target
 
 [Service]
-User=YOUR_USERNAME
+User=$(id -un)
 WorkingDirectory=/opt/panel/backend
 EnvironmentFile=-/opt/panel/.env
 ExecStart=/opt/panel/backend/.venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
@@ -310,17 +310,17 @@ RCON_PORT=19999
 RCON_PASSWORD=your_rcon_password
 ```
 
-### Step 4 — Link the panel to the bridge
+### Step 4 — Restart the panel
 
-Add to `/opt/panel/.env`:
-```
-AIGM_DIR=/home/YOUR_USERNAME/AIGameMaster
-AIGM_BRIDGE_PATH=/home/YOUR_USERNAME/AIGameMaster/AIGameMaster/bridge.py
-```
-
-Then restart the panel:
 ```bash
 sudo systemctl restart sitrep-api
+```
+
+The panel auto-detects the AI GM bridge at `~/AIGameMaster`. If you installed it to a custom location, add these to `/opt/panel/.env` before restarting:
+
+```
+AIGM_DIR=/custom/path/to/AIGameMaster
+AIGM_BRIDGE_PATH=/custom/path/to/AIGameMaster/AIGameMaster/bridge.py
 ```
 
 ### Step 5 — Start the bridge
@@ -575,7 +575,7 @@ This refreshes sudoers, syncs deps, rebuilds, and restarts. All 10 checks should
 
 **Arma server won't download during install**
 ```bash
-sudo -u YOUR_USERNAME /usr/games/steamcmd +force_install_dir /opt/arma-server +login anonymous +app_update 1874900 validate +quit
+sudo -u "$(id -un)" /usr/games/steamcmd +force_install_dir /opt/arma-server +login anonymous +app_update 1874900 validate +quit
 ```
 
 **Startup diagnostics shows broken mods**

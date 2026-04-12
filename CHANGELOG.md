@@ -1,5 +1,20 @@
 # SITREP Panel Changelog
 
+## 2026-04-11 (2)
+
+### backend/main.py
+- Added `os.path.expanduser()` to `AIGM_DIR` and `AIGM_BRIDGE_PATH` reads so `~/` notation works if set in `.env`
+
+### README.md
+- AI GM Step 4 rewritten: removed hardcoded `/home/YOUR_USERNAME/` paths; panel auto-detects `~/AIGameMaster`, step now only documents the custom-path override
+- Manual install: changed `User=YOUR_USERNAME` heredoc to `User=$(id -un)` (unquoted heredoc so it expands at run time)
+- Troubleshooting: replaced `sudo -u YOUR_USERNAME` with `sudo -u "$(id -un)"`
+
+### .env.example
+- Added commented `AIGM_DIR` and `AIGM_BRIDGE_PATH` entries documenting the optional custom-path overrides
+
+---
+
 ## 2026-04-11
 
 ### README.md

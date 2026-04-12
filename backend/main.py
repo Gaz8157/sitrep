@@ -114,7 +114,7 @@ def _get_disk_stats():
             pass
     return disks
 
-AIGM_DIR  = Path(os.environ.get("AIGM_DIR", str(Path.home() / "AIGameMaster")))
+AIGM_DIR  = Path(os.path.expanduser(os.environ.get("AIGM_DIR", str(Path.home() / "AIGameMaster"))))
 SAFE_DIRS = [ARMA_DIR, PROFILE_DIR, AIGM_DIR]
 
 MAT_DIR       = ARMA_DIR / "profile/profile" / MAT_PROFILE_DIR_NAME
@@ -5269,7 +5269,7 @@ async def aigm_chat(request: Request):
             return (await c.post(f"{BRIDGE}/api/chat", json=await request.json())).json()
     except Exception as e: return {"error": str(e), "reply": "Bridge not running."}
 
-AIGM_BRIDGE_PATH = Path(os.environ.get("AIGM_BRIDGE_PATH", str(Path.home() / "AIGameMaster" / "AIGameMaster" / "bridge.py")))
+AIGM_BRIDGE_PATH = Path(os.path.expanduser(os.environ.get("AIGM_BRIDGE_PATH", str(Path.home() / "AIGameMaster" / "AIGameMaster" / "bridge.py"))))
 
 @app.get("/api/aigm/status")
 async def aigm_status(request: Request):
