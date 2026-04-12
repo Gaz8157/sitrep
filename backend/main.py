@@ -928,6 +928,64 @@ def _run_diagnostics() -> dict:
         else:
             add("uv_lock", "Python lockfile up to date", "ok")
 
+    # 11. Ollama reachability (best-effort HTTP probe)
+    ollama_url = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
+    try:
+        import urllib.request as _urlreq
+        req = _urlreq.Request(ollama_url, method="GET")
+        with _urlreq.urlopen(req, timeout=2):
+            pass
+        add("ollama_reachable", "Ollama reachable", "ok", detail=ollama_url)
+    except Exception as e:
+        add("ollama_reachable", "Ollama not reachable", "warn",
+            detail=f"{ollama_url} — {e}. AI GM bridge requires Ollama running.")
+
+    # 12. aigm-bridge.service status
+    try:
+        r = subprocess.run(
+            ["systemctl", "is-active", "aigm-bridge"],
+            capture_output=True, timeout=3
+        )
+        state = r.stdout.decode(errors="ignore").strip()
+        if state == "active":
+            add("aigm_bridge_service", "AI GM bridge service running", "ok")
+        elif state == "inactive":
+            add("aigm_bridge_service", "AI GM bridge service stopped", "warn",
+                detail="Start from the AI GM tab or: sudo systemctl start aigm-bridge")
+        elif state == "failed":
+            add("aigm_bridge_service", "AI GM bridge service failed", "fail",
+                detail="sudo systemctl status aigm-bridge for details")
+        elif r.returncode != 0 and b"not-found" in r.stderr:
+            add("aigm_bridge_service", "AI GM bridge not installed", "warn",
+                detail="Install via /opt/panel/tools/aigm/install.sh")
+        else:
+            add("aigm_bridge_service", f"AI GM bridge service: {state}", "warn")
+    except Exception as e:
+        add("aigm_bridge_service", "AI GM bridge check failed", "warn", detail=str(e))
+
+    # 13. player-tracker.service status
+    try:
+        r = subprocess.run(
+            ["systemctl", "is-active", "player-tracker"],
+            capture_output=True, timeout=3
+        )
+        state = r.stdout.decode(errors="ignore").strip()
+        if state == "active":
+            add("player_tracker_service", "PlayerTracker relay running", "ok")
+        elif state == "inactive":
+            add("player_tracker_service", "PlayerTracker relay stopped", "warn",
+                detail="Start with: sudo systemctl start player-tracker")
+        elif state == "failed":
+            add("player_tracker_service", "PlayerTracker relay failed", "fail",
+                detail="sudo systemctl status player-tracker for details")
+        elif r.returncode != 0 and b"not-found" in r.stderr:
+            add("player_tracker_service", "PlayerTracker relay not installed", "warn",
+                detail="Install via /opt/panel/tools/player-tracker/Relay/install.sh")
+        else:
+            add("player_tracker_service", f"PlayerTracker relay: {state}", "warn")
+    except Exception as e:
+        add("player_tracker_service", "PlayerTracker relay check failed", "warn", detail=str(e))
+
     fails = sum(1 for c in checks if c["status"] == "fail")
     warns = sum(1 for c in checks if c["status"] == "warn")
     overall = "fail" if fails else ("warn" if warns else "ok")
@@ -1956,9 +2014,64 @@ async def create_server(request: Request):
 
 @app.get("/api/system/diagnostics")
 async def system_diagnostics(request: Request):
-    if current_user(request).get("role") != "owner":
-        return JSONResponse({"error": "Owner only"}, status_code=403)
+    u = current_user(request)
+    if not u.get("username"):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
     return _run_diagnostics()
+
+_AUTO_FIX_HANDLERS: dict = {}
+
+def _register_fix(check_id: str):
+    def decorator(fn):
+        _AUTO_FIX_HANDLERS[check_id] = fn
+        return fn
+    return decorator
+
+@_register_fix("panel_data_writable")
+def _fix_panel_data_writable():
+    user = getpass.getuser()
+    r = subprocess.run(
+        ["sudo", "chown", "-R", f"{user}:{user}", str(PANEL_DATA)],
+        capture_output=True, timeout=10
+    )
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr.decode(errors="ignore").strip() or "chown failed")
+
+@_register_fix("aigm_bridge_service")
+def _fix_aigm_bridge_service():
+    r = subprocess.run(
+        ["sudo", "systemctl", "restart", "aigm-bridge"],
+        capture_output=True, timeout=15
+    )
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr.decode(errors="ignore").strip() or "systemctl restart failed")
+
+@_register_fix("player_tracker_service")
+def _fix_player_tracker_service():
+    r = subprocess.run(
+        ["sudo", "systemctl", "restart", "player-tracker"],
+        capture_output=True, timeout=15
+    )
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr.decode(errors="ignore").strip() or "systemctl restart failed")
+
+_FIX_ALLOWED_ROLES = {"owner", "head_admin", "admin"}
+
+@app.post("/api/system/fix/{check_id}")
+async def system_fix(check_id: str, request: Request):
+    u = current_user(request)
+    if not u.get("username"):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    if u.get("role") not in _FIX_ALLOWED_ROLES:
+        return JSONResponse({"error": "Admin access required"}, status_code=403)
+    handler = _AUTO_FIX_HANDLERS.get(check_id)
+    if not handler:
+        return JSONResponse({"error": f"No auto-fix available for '{check_id}'"}, status_code=404)
+    try:
+        await asyncio.to_thread(handler)
+        return {"ok": True, "check_id": check_id}
+    except Exception as e:
+        return JSONResponse({"error": str(e), "check_id": check_id}, status_code=500)
 
 @app.post("/api/servers/{server_id}/provision")
 async def provision_server(server_id: int, request: Request):

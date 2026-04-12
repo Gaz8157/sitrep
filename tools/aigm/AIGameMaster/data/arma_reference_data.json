@@ -1,0 +1,70 @@
+{
+  "game master - everon xtra": {
+    "named_locations": [
+      {"name": "Morton", "type": "town", "grid": "065-088"},
+      {"name": "Montignac", "type": "town", "grid": "082-062"},
+      {"name": "Regine", "type": "village", "grid": "055-072"},
+      {"name": "Le Moule", "type": "village", "grid": "072-078"},
+      {"name": "Grishino", "type": "town", "grid": "045-055"},
+      {"name": "Levie", "type": "village", "grid": "060-065"},
+      {"name": "Saint-Pierre", "type": "town", "grid": "090-080"},
+      {"name": "La Trinite", "type": "village", "grid": "078-055"},
+      {"name": "Corazol", "type": "village", "grid": "052-045"}
+    ],
+    "military_sites": [
+      {"name": "Everon Airport", "type": "airfield", "grid": "070-058"},
+      {"name": "North Radio Tower", "type": "landmark", "grid": "050-040"},
+      {"name": "South Radar Station", "type": "military_base", "grid": "085-095"},
+      {"name": "Central Crossroads", "type": "junction", "grid": "068-070"}
+    ],
+    "terrain_features": [
+      {"name": "Central Ridge", "type": "high_ground", "grid": "060-060", "note": "Dominant elevation — ideal for overwatch, mortars, and long-range fire support"},
+      {"name": "Eastern Coast Road", "type": "road_corridor", "grid": "090-070", "note": "Flat, fast vehicle corridor — ideal for convoy ops and vehicle QRF"},
+      {"name": "Western Forest Belt", "type": "forest", "grid": "040-065", "note": "Dense cover — ideal for ambush positions and concealed staging"},
+      {"name": "Northern Valley", "type": "valley", "grid": "055-035", "note": "Low ground between ridges — channelises movement, ambush risk"},
+      {"name": "Southern Lowlands", "type": "open_ground", "grid": "075-095", "note": "Open terrain — players are visible, long engagement ranges, vehicles effective"}
+    ],
+    "tactical_notes": [
+      "Central ridge dominates the map — whoever holds it controls sightlines to 60% of the island",
+      "The airport is an obvious high-value objective — strong defensive works there create credible missions",
+      "Eastern coast road is the fastest vehicle axis — ambushes there feel authentic and create intense engagements",
+      "Morton and Montignac are the largest towns — urban ops there create close-quarters intensity",
+      "The forest belt west of the central ridge is perfect for concealed staging — players rarely check it",
+      "Radio towers and radar stations are natural mission objectives — players understand immediately why they matter"
+    ],
+    "operation_suggestions": [
+      "CONVOY INTERCEPT: Enemy convoy moving Morton to Montignac on coast road. Players intercept and destroy.",
+      "AIRFIELD SEIZURE: Enemy holds Everon Airport. Players must clear terminal and secure runway.",
+      "RIDGELINE DEFENSE: Enemy has observation post on Central Ridge calling in fire on player positions. Neutralize it.",
+      "TOWN CLEARANCE: Enemy occupies Morton. Clear street by street, establish control of town square.",
+      "RADIO SILENCE: Destroy North Radio Tower to cut enemy comms before main assault.",
+      "CHECKPOINT BREACH: Enemy checkpoint blocks main road. Assault or bypass to continue advance."
+    ]
+  },
+  "everon": {
+    "named_locations": [
+      {"name": "Morton", "type": "town", "grid": "065-088"},
+      {"name": "Montignac", "type": "town", "grid": "082-062"},
+      {"name": "Regine", "type": "village", "grid": "055-072"},
+      {"name": "Grishino", "type": "town", "grid": "045-055"},
+      {"name": "Saint-Pierre", "type": "town", "grid": "090-080"}
+    ],
+    "military_sites": [
+      {"name": "Everon Airport", "type": "airfield", "grid": "070-058"},
+      {"name": "Radar Station", "type": "military_base", "grid": "085-095"}
+    ],
+    "terrain_features": [
+      {"name": "Central Ridge", "type": "high_ground", "grid": "060-060"},
+      {"name": "Eastern Coast Road", "type": "road_corridor", "grid": "090-070"},
+      {"name": "Western Forest Belt", "type": "forest", "grid": "040-065"}
+    ],
+    "tactical_notes": [
+      "Central ridge dominates sightlines across the island",
+      "Eastern coast road is the primary vehicle axis"
+    ],
+    "operation_suggestions": [
+      "AIRFIELD SEIZURE: Clear Everon Airport and hold against counterattack.",
+      "TOWN CLEARANCE: Enemy holds Morton — clear and secure."
+    ]
+  }
+}

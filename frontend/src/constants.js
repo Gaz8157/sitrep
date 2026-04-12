@@ -81,7 +81,7 @@ export const SRC_COLORS={SCRIPT:'#b388ff',WORLD:'#64b5f6',NETWORK:'#4dd0e1',RCON
 export const SRC_LABELS={SCRIPT:'SCR',WORLD:'WLD',NETWORK:'NET',RCON:'RCON',SYSTEM:'SYS',AI_GM:'AI',PLAYER:'PLR',MOD:'MOD'}
 export const LVL={FATAL:{c:'#ff1744',i:'!!'},ERROR:{c:'#ff4757',i:'X'},WARN:{c:'#ffa502',i:'!'},INFO:{c:'#5a6a7a',i:'.'},DEBUG:{c:'#384858',i:'>'},CMD:{c:'#69f0ae',i:'>'}}
 
-export const ROLE_TABS={owner:['dashboard','console','startup','admin','config','mods','files','webhooks','network','aigm','scheduler','tracker','system'],head_admin:['dashboard','console','startup','admin','config','mods','files','webhooks','network','aigm','scheduler','tracker'],admin:['dashboard','console','startup','admin','config','mods','files','webhooks','network','aigm','scheduler','tracker'],moderator:['dashboard','console','startup','admin','network'],viewer:['dashboard'],demo:['dashboard','console','admin','mods']}
+export const ROLE_TABS={owner:['dashboard','console','startup','admin','config','mods','files','webhooks','network','aigm','scheduler','tracker','system'],head_admin:['dashboard','console','startup','admin','config','mods','files','webhooks','network','aigm','scheduler','tracker','system'],admin:['dashboard','console','startup','admin','config','mods','files','webhooks','network','aigm','scheduler','tracker','system'],moderator:['dashboard','console','startup','admin','network','system'],viewer:['dashboard','system'],demo:['dashboard','console','admin','mods','system']}
 export const ROLE_COLORS={owner:'default',head_admin:'danger',admin:'info',moderator:'warning',viewer:'dim',demo:'dim'}
 
 export const DISCORD_BLURPLE='#5865F2'

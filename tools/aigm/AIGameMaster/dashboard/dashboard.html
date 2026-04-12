@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TACTICAL ZEUS — AI Game Master</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+:root {
+  --bg: #09090b; --surface: #18181b; --surface2: #27272a;
+  --border: #3f3f46; --border-dim: #27272a;
+  --text: #e4e4e7; --text-dim: #71717a; --text-muted: #52525b;
+  --accent: #22d3ee; --accent-dim: rgba(34,211,238,0.1); --accent-border: rgba(34,211,238,0.25);
+  --red: #ef4444; --red-dim: rgba(239,68,68,0.1); --red-border: rgba(239,68,68,0.25);
+  --green: #22c55e; --green-dim: rgba(34,197,94,0.1); --green-border: rgba(34,197,94,0.25);
+  --yellow: #eab308; --yellow-dim: rgba(234,179,8,0.1); --yellow-border: rgba(234,179,8,0.25);
+  --orange: #f97316; --purple: #a78bfa;
+  --purple-dim: rgba(167,139,250,0.1); --purple-border: rgba(167,139,250,0.25);
+  --mono: 'JetBrains Mono', monospace;
+  --sans: 'Inter', -apple-system, sans-serif;
+  --radius: 8px;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: var(--sans); background: var(--bg); color: var(--text); line-height: 1.5; }
+::-webkit-scrollbar { width:6px; } ::-webkit-scrollbar-track { background:var(--bg); } ::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+
+/* ─── Header ─── */
+.header {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:12px 24px; background:var(--surface); border-bottom:1px solid var(--border-dim);
+  position:sticky; top:0; z-index:100; backdrop-filter:blur(12px);
+}
+.header-left { display:flex; align-items:center; gap:16px; }
+.logo { font-size:18px; font-weight:800; letter-spacing:-0.5px; color:var(--accent); }
+.logo span { color:var(--text-dim); font-weight:400; font-size:12px; margin-left:8px; }
+.header-right { display:flex; align-items:center; gap:20px; font-size:12px; color:var(--text-dim); }
+.indicator { display:flex; align-items:center; gap:6px; }
+.dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+.dot.on { background:var(--green); box-shadow:0 0 6px var(--green); }
+.dot.off { background:var(--red); box-shadow:0 0 6px var(--red); }
+.dot.busy { background:var(--yellow); box-shadow:0 0 6px var(--yellow); animation:pulse 1.2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+.clock { font-family:var(--mono); color:var(--accent); font-size:13px; font-weight:600; }
+
+/* ─── Layout ─── */
+.layout { display:grid; grid-template-columns:var(--left-w, 320px) 5px 1fr 5px var(--right-w, 400px); gap:0; background:var(--border-dim); height:calc(100vh - 49px); }
+.panel { background:var(--bg); overflow-y:auto; max-height:calc(100vh - 49px); }
+.resize-handle { width:5px; cursor:col-resize; background:var(--border-dim); transition:background 0.15s; z-index:10; }
+.resize-handle:hover, .resize-handle.dragging { background:var(--accent); }
+.panel-section { padding:16px; border-bottom:1px solid var(--border-dim); }
+.section-title { font-size:10px; font-weight:700; letter-spacing:1.5px; color:var(--text-muted); text-transform:uppercase; margin-bottom:10px; }
+
+/* ─── Stats ─── */
+.stat { display:flex; justify-content:space-between; padding:3px 0; font-size:13px; }
+.stat-label { color:var(--text-dim); }
+.stat-val { font-family:var(--mono); font-weight:600; font-size:12px; }
+.stat-val.cyan { color:var(--accent); } .stat-val.green { color:var(--green); }
+.stat-val.red { color:var(--red); } .stat-val.yellow { color:var(--yellow); }
+
+/* ─── Metric Cards ─── */
+.metrics { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.metric { background:var(--surface); border:1px solid var(--border-dim); border-radius:var(--radius); padding:12px; text-align:center; }
+.metric-val { font-family:var(--mono); font-size:28px; font-weight:700; color:var(--accent); line-height:1; }
+.metric-lbl { font-size:9px; font-weight:600; letter-spacing:1px; color:var(--text-muted); margin-top:4px; }
+
+/* ─── Escalation ─── */
+.esc-bar { display:flex; gap:3px; margin-top:8px; }
+.esc-seg { flex:1; height:5px; border-radius:2px; background:var(--surface2); transition:background 0.3s; }
+.esc-seg.l0 { background:var(--green); } .esc-seg.l1 { background:var(--yellow); }
+.esc-seg.l2 { background:var(--orange); } .esc-seg.l3 { background:var(--red); }
+.esc-seg.l4 { background:#d946ef; box-shadow:0 0 8px rgba(217,70,239,0.5); }
+
+/* ─── Buttons ─── */
+.btn {
+  font-family:var(--sans); font-size:11px; font-weight:600; letter-spacing:0.5px;
+  padding:7px 12px; border:1px solid; border-radius:6px; cursor:pointer;
+  transition:all 0.15s; text-transform:uppercase; display:inline-flex; align-items:center; gap:4px;
+}
+.btn-cyan { background:var(--accent-dim); color:var(--accent); border-color:var(--accent-border); }
+.btn-cyan:hover { background:rgba(34,211,238,0.2); }
+.btn-red { background:var(--red-dim); color:var(--red); border-color:var(--red-border); }
+.btn-red:hover { background:rgba(239,68,68,0.2); }
+.btn-green { background:var(--green-dim); color:var(--green); border-color:var(--green-border); }
+.btn-green:hover { background:rgba(34,197,94,0.2); }
+.btn-yellow { background:var(--yellow-dim); color:var(--yellow); border-color:var(--yellow-border); }
+.btn-yellow:hover { background:rgba(234,179,8,0.2); }
+.btn-purple { background:var(--purple-dim); color:var(--purple); border-color:var(--purple-border); }
+.btn-purple:hover { background:rgba(167,139,250,0.2); }
+.btn.active { box-shadow:0 0 0 1px currentColor; }
+.btn-row { display:flex; gap:6px; flex-wrap:wrap; }
+
+/* ─── Inputs ─── */
+input, select, textarea {
+  font-family:var(--mono); font-size:12px; background:var(--surface);
+  border:1px solid var(--border-dim); color:var(--text); padding:8px 10px;
+  border-radius:6px; width:100%; outline:none;
+}
+input:focus, textarea:focus { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-dim); }
+textarea { font-family:var(--sans); resize:vertical; min-height:50px; }
+
+/* ─── Map ─── */
+.map-container { position:relative; width:100%; height:100%; min-height:400px; background:var(--surface); }
+.map-container canvas { width:100%; height:100%; display:block; }
+
+/* ─── Chat ─── */
+.chat-scroll { flex:1; overflow-y:auto; padding:12px; min-height:0; }
+.chat-msg { margin-bottom:10px; font-size:13px; line-height:1.6; }
+.chat-msg .sender { font-weight:700; font-size:11px; letter-spacing:0.5px; margin-bottom:2px; }
+.chat-msg.user .sender { color:var(--accent); }
+.chat-msg.ai .sender { color:var(--red); }
+.chat-msg .body { color:var(--text-dim); }
+.chat-msg.ai .body { color:var(--text); }
+.chat-msg.system { font-size:11px; color:var(--text-muted); font-style:italic; border-left:2px solid var(--border); padding-left:8px; }
+.chat-footer { padding:12px; border-top:1px solid var(--border-dim); display:flex; gap:8px; }
+.chat-footer input { flex:1; }
+
+/* ─── Command Palette ─── */
+.cmd-grid { display:grid; grid-template-columns:1fr 1fr; gap:4px; }
+.cmd-btn {
+  display:flex; align-items:center; gap:6px; padding:8px 10px;
+  background:var(--surface); border:1px solid var(--border-dim); border-radius:6px;
+  font-size:11px; font-weight:600; cursor:pointer; transition:all 0.12s;
+  color:var(--text-dim); text-align:left;
+}
+.cmd-btn:hover { background:var(--surface2); color:var(--text); border-color:var(--border); }
+.cmd-btn.sending { opacity:0.4; pointer-events:none; }
+.cmd-btn.sent { border-color:var(--green-border); color:var(--green); }
+.cmd-btn .icon { font-size:12px; flex-shrink:0; width:16px; text-align:center; }
+
+/* ─── Log ─── */
+.log-item { padding:6px 8px; margin-bottom:3px; background:var(--surface); border-radius:4px; border-left:2px solid var(--accent); font-size:11px; font-family:var(--mono); }
+.log-item .type { color:var(--accent); font-weight:700; }
+.log-item .detail { color:var(--text-dim); }
+
+/* ─── Server Log ─── */
+.slog { padding:3px 6px; font-size:10px; font-family:var(--mono); color:var(--text-dim); line-height:1.4; border-bottom:1px solid var(--border-dim); word-break:break-all; }
+.slog .slog-time { color:var(--text-muted); margin-right:6px; }
+.slog .slog-level { font-weight:700; margin-right:6px; }
+.slog .slog-level.INFO { color:var(--accent); }
+.slog .slog-level.WARNING { color:var(--yellow); }
+.slog .slog-level.ERROR { color:var(--red); }
+.slog .slog-level.DEBUG { color:var(--text-muted); }
+
+/* ─── Player ─── */
+.player-row { display:flex; justify-content:space-between; align-items:center; padding:6px 8px; background:var(--surface); border-radius:6px; margin-bottom:4px; font-size:12px; }
+.player-name { font-weight:600; }
+.player-grid { font-family:var(--mono); font-size:11px; color:var(--text-dim); }
+.tag { font-size:9px; font-weight:700; padding:2px 6px; border-radius:3px; letter-spacing:0.5px; }
+.tag-alive { background:var(--green-dim); color:var(--green); }
+.tag-dead { background:var(--red-dim); color:var(--red); }
+
+/* ─── Slider ─── */
+.slider-row { display:flex; align-items:center; gap:10px; }
+.slider-row input[type=range] { flex:1; accent-color:var(--accent); height:4px; }
+.slider-val { font-family:var(--mono); font-size:20px; font-weight:700; color:var(--accent); min-width:36px; text-align:right; }
+
+/* ─── Responsive ─── */
+@media (max-width:1200px) { .layout { --left-w:280px; --right-w:340px; } }
+@media (max-width:900px) { .layout { grid-template-columns:1fr !important; } }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div class="header-left">
+    <div class="logo">TACTICAL ZEUS<span>v6.0</span></div>
+  </div>
+  <div class="header-right">
+    <div class="indicator"><div class="dot" id="dotSpark"></div><span>SPARK</span></div>
+    <div class="indicator"><div class="dot" id="dotBridge"></div><span>BRIDGE</span></div>
+    <div class="indicator"><div class="dot" id="dotServer"></div><span>SERVER</span></div>
+    <div class="indicator" id="queryStatus" style="display:none"><div class="dot busy"></div><span id="queryLabel">AI THINKING</span></div>
+    <div class="clock" id="clock">--:--:--</div>
+  </div>
+</div>
+
+<!-- 3-Column Layout -->
+<div class="layout">
+
+  <!-- LEFT PANEL: Status + Controls -->
+  <div class="panel" id="leftPanel">
+
+    <!-- Server Status -->
+    <div class="panel-section">
+      <div class="section-title">Game Server</div>
+      <div class="stat"><span class="stat-label">Map</span><span class="stat-val cyan" id="mapName">--</span></div>
+      <div class="stat"><span class="stat-label">Players</span><span class="stat-val green" id="playerCount">0</span></div>
+      <div class="stat"><span class="stat-label">Session</span><span class="stat-val" id="sessionTime">0m</span></div>
+      <div class="stat"><span class="stat-label">OPFOR Active</span><span class="stat-val red" id="aiActive">0</span></div>
+      <div class="stat"><span class="stat-label">OPFOR Max</span><span class="stat-val" id="aiMax">40</span></div>
+      <div class="stat"><span class="stat-label">Terrain Grids</span><span class="stat-val" id="gridCount">0</span></div>
+    </div>
+
+    <!-- Zeus Status -->
+    <div class="panel-section">
+      <div class="section-title">Tactical Zeus</div>
+      <div class="stat"><span class="stat-label">Model</span><span class="stat-val" id="modelName">--</span></div>
+      <div class="stat"><span class="stat-label">Last Latency</span><span class="stat-val" id="latency">--</span></div>
+      <div class="stat"><span class="stat-label">Pending</span><span class="stat-val" id="pending">0</span></div>
+      <div class="stat"><span class="stat-label">Dispatched</span><span class="stat-val cyan" id="dispatched">0</span></div>
+      <div class="stat"><span class="stat-label">Escalation</span><span class="stat-val yellow" id="escalation">QUIET</span></div>
+      <div class="esc-bar" id="escBar">
+        <div class="esc-seg"></div><div class="esc-seg"></div><div class="esc-seg"></div><div class="esc-seg"></div><div class="esc-seg"></div>
+      </div>
+    </div>
+
+    <!-- Metrics -->
+    <div class="panel-section">
+      <div class="metrics">
+        <div class="metric"><div class="metric-val" id="mSpawns">0</div><div class="metric-lbl">SPAWNS</div></div>
+        <div class="metric"><div class="metric-val" id="mDecisions">0</div><div class="metric-lbl">DECISIONS</div></div>
+        <div class="metric"><div class="metric-val" id="mHeartbeats">0</div><div class="metric-lbl">HEARTBEATS</div></div>
+        <div class="metric"><div class="metric-val" id="mUptime">0m</div><div class="metric-lbl">UPTIME</div></div>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="panel-section">
+      <div class="section-title">Controls</div>
+      <div style="margin-bottom:8px">
+        <div class="stat" style="margin-bottom:4px"><span class="stat-label">Difficulty</span><span class="slider-val" id="diffVal">65</span></div>
+        <div class="slider-row"><input type="range" min="0" max="100" value="65" id="diffSlider" oninput="setDifficulty(this.value)"></div>
+      </div>
+      <div style="margin-bottom:8px">
+        <div class="stat" style="margin-bottom:4px"><span class="stat-label">Escalation</span><span class="slider-val" id="escVal" style="color:#ff6644">50</span></div>
+        <div class="slider-row"><input type="range" min="0" max="100" value="50" id="escSlider" style="accent-color:#ff6644" oninput="setEscalation(this.value)"></div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:#666;margin-top:2px"><span>Peaceful</span><span>Normal</span><span>Chaotic</span></div>
+      </div>
+      <div class="section-title" style="margin-top:8px">GM Mode</div>
+      <div class="btn-row" style="margin-bottom:8px">
+        <button class="btn btn-cyan" id="btnDemand" onclick="setMode('on_demand')">On-Demand</button>
+        <button class="btn btn-yellow" id="btnAuto" onclick="setMode('autonomous')">Autonomous</button>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-red" id="btnToggleAI" onclick="toggleAI()">Disable AI</button>
+        <button class="btn btn-green" onclick="triggerNow()">Trigger Now</button>
+        <button class="btn btn-purple" onclick="warmup()">Warmup Model</button>
+      </div>
+    </div>
+
+    <!-- Admin -->
+    <div class="panel-section">
+      <div class="section-title">Admin</div>
+      <div class="btn-row" style="margin-bottom:8px">
+        <button class="btn btn-red" onclick="deleteAllAI()">Delete All AI</button>
+        <button class="btn btn-cyan" onclick="clearQueue()">Clear Queue</button>
+      </div>
+      <div class="section-title" style="margin-top:8px">Manual Spawn</div>
+      <div style="display:grid; grid-template-columns:1fr 60px; gap:6px; margin-bottom:6px">
+        <select id="spawnType"></select>
+        <input type="number" id="spawnCount" value="4" min="1" max="20">
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:6px">
+        <input type="text" id="spawnGrid" placeholder="Grid: 450-680">
+        <select id="spawnBehavior">
+          <option value="patrol">Patrol</option><option value="defend">Defend</option>
+          <option value="ambush">Ambush</option><option value="move">Move</option>
+          <option value="flank">Flank</option><option value="hunt">Hunt</option>
+        </select>
+      </div>
+      <button class="btn btn-green" style="width:100%" onclick="manualSpawn()">Spawn</button>
+    </div>
+
+    <!-- Mission -->
+    <div class="panel-section">
+      <div class="section-title">Mission Briefing <span style="float:right;cursor:pointer;color:var(--red);font-size:9px" onclick="clearMission()">CLEAR</span></div>
+      <textarea id="missionText" placeholder="Describe the scenario..."></textarea>
+      <button class="btn btn-cyan" style="width:100%;margin-top:6px" onclick="sendMission()">Send to Zeus</button>
+    </div>
+
+    <!-- Players -->
+    <div class="panel-section">
+      <div class="section-title">Players</div>
+      <div id="playerList"></div>
+    </div>
+  </div>
+
+  <!-- Resize handle: left ↔ center -->
+  <div class="resize-handle" id="leftHandle"></div>
+
+  <!-- CENTER: Map -->
+  <div class="panel" style="display:flex;flex-direction:column;">
+    <div class="panel-section" style="padding:8px 16px;flex-shrink:0;display:flex;justify-content:space-between;align-items:center;">
+      <div class="section-title" style="margin:0">Tactical Map</div>
+      <span style="font-family:var(--mono);font-size:11px;color:var(--text-muted)" id="mapUpdate">--</span>
+    </div>
+    <div class="map-container" style="flex:1"><canvas id="tacMap"></canvas></div>
+  </div>
+
+  <!-- Resize handle: center ↔ right -->
+  <div class="resize-handle" id="rightHandle"></div>
+
+  <!-- RIGHT PANEL: Chat + Commands + Log -->
+  <div class="panel" id="rightPanel" style="display:flex;flex-direction:column;overflow:hidden;max-height:calc(100vh - 49px);">
+
+    <!-- Command Palette (collapsible) -->
+    <div class="panel-section" style="flex-shrink:0;">
+      <div class="section-title" style="cursor:pointer" onclick="const p=document.getElementById('cmdPalette');const v=p.style.display==='none';p.style.display=v?'block':'none';document.getElementById('cmdToggleLabel').textContent=v?'HIDE':'SHOW'">
+        Quick Commands <span style="float:right;font-size:9px;color:var(--accent)" id="cmdToggleLabel">SHOW</span>
+      </div>
+      <div id="cmdPalette" style="display:none">
+        <div style="font-size:9px;color:var(--red);font-weight:700;letter-spacing:1px;margin-bottom:4px">SPAWN</div>
+        <div class="cmd-grid">
+          <button class="cmd-btn" onclick="qCmd(this,'Deploy QRF — 8-12 infantry near players, hunt behavior, aggressive')"><span class="icon">+</span>QRF</button>
+          <button class="cmd-btn" onclick="qCmd(this,'Set up ambush on nearest road to players with 2 fireteams and MG')"><span class="icon">+</span>Ambush</button>
+          <button class="cmd-btn" onclick="qCmd(this,'Deploy 2 sniper teams 500-800m from players on high ground')"><span class="icon">+</span>Snipers</button>
+          <button class="cmd-btn" onclick="qCmd(this,'Full combined arms assault on player positions from multiple directions')"><span class="icon">+</span>Assault</button>
+          <button class="cmd-btn" onclick="qCmd(this,'Deploy motorized patrol with 2 vehicles near players')"><span class="icon">+</span>Motorized</button>
+          <button class="cmd-btn" onclick="qCmd(this,'Set up defensive checkpoint with infantry and MG on nearest road')"><span class="icon">+</span>Checkpoint</button>
+          <button class="cmd-btn" onclick="qCmd(this,'Deploy light armor with infantry escort toward players')"><span class="icon">+</span>Armor</button>
+          <button class="cmd-btn" onclick="qCmd(this,'Deploy recon element — 2 small fireteams scouting player area')"><span class="icon">+</span>Recon</button>
+        </div>
+        <div style="font-size:9px;color:var(--yellow);font-weight:700;letter-spacing:1px;margin:8px 0 4px">TACTICAL</div>
+        <div class="cmd-grid">
+          <button class="cmd-btn" onclick="qCmd(this,'Flank from east while element approaches from west — pincer')"><span class="icon">+</span>Pincer</button>
+          <button class="cmd-btn" onclick="qCmd(this,'Reinforce current OPFOR positions with additional infantry')"><span class="icon">+</span>Reinforce</button>
+          <button class="cmd-btn" onclick="qCmd(this,'Retreat all AI to defensive positions away from players')"><span class="icon">+</span>Retreat</button>
+          <button class="cmd-btn" onclick="qCmd(this,'Encircle player positions, cut off escape routes')"><span class="icon">+</span>Encircle</button>
+        </div>
+        <div style="font-size:9px;color:var(--purple);font-weight:700;letter-spacing:1px;margin:8px 0 4px">OPERATIONS</div>
+        <div class="cmd-grid">
+          <button class="cmd-btn" onclick="qCmd(this,'Multi-phase op: recon probes, then fire support positions, then assault from two directions')"><span class="icon">+</span>Phased Op</button>
+          <button class="cmd-btn" onclick="qCmd(this,'Guerrilla campaign — small hit-and-run teams from different directions')"><span class="icon">+</span>Guerrilla</button>
+          <button class="cmd-btn" onclick="qCmd(this,'Populate area with ambient military presence — patrols, guards, checkpoints')"><span class="icon">+</span>Populate</button>
+          <button class="cmd-btn" onclick="qCmd(this,'Spawn HVT — command vehicle or officer with security detail')"><span class="icon">+</span>HVT</button>
+        </div>
+        <div style="font-size:9px;color:var(--green);font-weight:700;letter-spacing:1px;margin:8px 0 4px">UTILITY</div>
+        <div class="cmd-grid">
+          <button class="cmd-btn" onclick="deleteAllAI()"><span class="icon">x</span>Clear All</button>
+          <button class="cmd-btn" onclick="qCmd(this,'Random encounter — surprise me with something unexpected')"><span class="icon">?</span>Random</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Chat (takes remaining space) -->
+    <div style="flex:1;display:flex;flex-direction:column;min-height:0;">
+      <div class="panel-section" style="padding:8px 16px;flex-shrink:0">
+        <div class="section-title" style="margin:0">Zeus Comms</div>
+      </div>
+      <div class="chat-scroll" id="chatMessages"></div>
+      <div class="chat-footer">
+        <input type="text" id="chatInput" placeholder="Talk to Zeus..." onkeydown="if(event.key==='Enter')sendChat()">
+        <button class="btn btn-cyan" onclick="sendChat()">Send</button>
+      </div>
+    </div>
+
+    <!-- Command Log -->
+    <div class="panel-section" style="flex-shrink:0;max-height:150px;overflow-y:auto">
+      <div class="section-title">Command Log</div>
+      <div id="cmdLog"></div>
+    </div>
+
+    <!-- Server Logs -->
+    <div class="panel-section" style="flex-shrink:0;max-height:250px;overflow-y:auto;border-top:1px solid var(--border-dim);" id="serverLogPanel">
+      <div class="section-title" style="cursor:pointer;user-select:none" onclick="document.getElementById('serverLogList').style.display=document.getElementById('serverLogList').style.display==='none'?'block':'none'">
+        Server Logs <span style="float:right;font-size:9px;color:var(--accent)">TOGGLE</span>
+      </div>
+      <div id="serverLogList"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ─── State ──────────────────────────────────────────────────────────────
+let state={}, ws=null, aiEnabled=true, gmMode='on_demand', diff=65, esc=0;
+const BASE=location.origin, WS_URL=`ws://${location.host}/ws`;
+
+// ─── Clock ──────────────────────────────────────────────────────────────
+setInterval(()=>{document.getElementById('clock').textContent=new Date().toLocaleTimeString('en-US',{hour12:false})},1000);
+
+// ─── Grid ───────────────────────────────────────────────────────────────
+function g6(x,y){
+  const ox=parseFloat(state.map_offset_x)||0, oz=parseFloat(state.map_offset_z)||0;
+  return`${String(Math.floor((x-ox)/10)%1000).padStart(3,'0')}-${String(Math.floor((y-oz)/10)%1000).padStart(3,'0')}`;
+}
+
+// ─── WebSocket ──────────────────────────────────────────────────────────
+function connectWS(){
+  ws=new WebSocket(WS_URL);
+  ws.onopen=()=>{document.getElementById('dotBridge').className='dot on';};
+  ws.onclose=()=>{document.getElementById('dotBridge').className='dot off';setTimeout(connectWS,3000)};
+  ws.onmessage=e=>{try{const m=JSON.parse(e.data);handleWS(m.event,m.data)}catch(e){}};
+}
+function handleWS(ev,d){
+  switch(ev){
+    case'init':
+      state=d.state||{};aiEnabled=d.ai_enabled;gmMode=d.gm_mode;esc=d.escalation||0;
+      if(d.chat_history)d.chat_history.forEach(h=>addChat(h.content,h.role==='user'?'user':'ai'));
+      if(d.server_logs)d.server_logs.forEach(e=>addServerLog(e));
+      updateUI();break;
+    case'state_update':state=d;updateUI();drawMap();
+      document.getElementById('mapUpdate').textContent=new Date().toLocaleTimeString('en-US',{hour12:false});break;
+    case'ai_decision':if(d.commands)d.commands.forEach(c=>addLog(c));break;
+    case'ai_thinking':
+      document.getElementById('dotSpark').className=d.thinking?'dot busy':'dot on';
+      document.getElementById('queryStatus').style.display=d.thinking?'flex':'none';
+      if(d.thinking)document.getElementById('queryLabel').textContent='AI THINKING';break;
+    case'ai_streaming':
+      document.getElementById('queryLabel').textContent=`GENERATING (${d.tokens} tokens)`;break;
+    case'config_update':aiEnabled=d.ai_enabled;gmMode=d.gm_mode;diff=d.difficulty;updateButtons();break;
+    case'chat_response':if(d.reply)addChat(d.reply,'ai');break;
+    case'server_log':addServerLog(d);break;
+  }
+}
+
+// ─── UI Update ──────────────────────────────────────────────────────────
+function updateUI(){
+  const s=state, p=s.players||[], alive=p.filter(x=>x.status==='alive');
+  document.getElementById('mapName').textContent=s.map||'--';
+  document.getElementById('playerCount').textContent=`${alive.length}/${p.length}`;
+  document.getElementById('sessionTime').textContent=`${Math.floor(s.session_time_minutes||0)}m`;
+  document.getElementById('aiActive').textContent=s.ai_units?.active||0;
+  document.getElementById('aiMax').textContent=s.ai_units?.max||40;
+  document.getElementById('gridCount').textContent=(s.valid_spawn_grids||[]).length;
+  document.getElementById('dotServer').className=p.length>0?'dot on':'dot off';
+  // Players
+  const pl=document.getElementById('playerList');
+  pl.innerHTML=p.map(x=>{
+    const grid=g6(parseFloat(x.pos?.x||0),parseFloat(x.pos?.y||0));
+    return`<div class="player-row"><div><span class="player-name">${x.name}</span><br><span class="player-grid">${grid}</span></div><span class="tag tag-${x.status}">${(x.status||'').toUpperCase()}</span></div>`;
+  }).join('');
+  // Spawn dropdown — populate from catalog
+  const sel=document.getElementById('spawnType'),cat=s.catalog||[];
+  if(cat.length>0&&sel.dataset.count!=cat.length){
+    sel.dataset.count=cat.length;
+    // Group by faction
+    const byFaction={};
+    cat.forEach(e=>{
+      const f=e.faction||'Unknown';
+      if(!byFaction[f])byFaction[f]=[];
+      byFaction[f].push(e);
+    });
+    let html='';
+    Object.keys(byFaction).sort().forEach(f=>{
+      html+=`<optgroup label="${f}">`;
+      byFaction[f].sort((a,b)=>(a.name||'').localeCompare(b.name||'')).forEach(e=>{
+        const cat=e.category?` [${e.category}]`:'';
+        html+=`<option value="${e.name}">${e.name}${cat}</option>`;
+      });
+      html+=`</optgroup>`;
+    });
+    sel.innerHTML=html;
+  }
+}
+function updateButtons(){
+  document.getElementById('btnDemand').classList.toggle('active',gmMode==='on_demand');
+  document.getElementById('btnAuto').classList.toggle('active',gmMode==='autonomous');
+  document.getElementById('btnToggleAI').textContent=aiEnabled?'Disable AI':'Enable AI';
+  document.getElementById('btnToggleAI').className=aiEnabled?'btn btn-red':'btn btn-green';
+  document.getElementById('diffSlider').value=diff;document.getElementById('diffVal').textContent=diff;
+}
+function updateEsc(level){
+  esc=level;const names=['QUIET','PROBING','ENGAGED','ASSAULT','OVERWHELM'];
+  const colors=['green','yellow','yellow','red','red'];
+  document.getElementById('escalation').textContent=names[level]||'QUIET';
+  document.getElementById('escalation').className=`stat-val ${colors[level]||'green'}`;
+  document.querySelectorAll('#escBar .esc-seg').forEach((s,i)=>{s.className=i<=level?`esc-seg l${level}`:'esc-seg'});
+}
+
+// ─── Tactical Map ───────────────────────────────────────────────────────
+function drawMap(){
+  const canvas=document.getElementById('tacMap'),rect=canvas.parentElement.getBoundingClientRect();
+  canvas.width=rect.width;canvas.height=rect.height;
+  const ctx=canvas.getContext('2d'),W=canvas.width,H=canvas.height;
+  const MAP=parseFloat(state.map_size)||12800;
+
+  // Background
+  ctx.fillStyle='#0c0c0f';ctx.fillRect(0,0,W,H);
+
+  // Grid
+  const gridCount=10;
+  ctx.strokeStyle='#1a1a22';ctx.lineWidth=0.5;
+  ctx.fillStyle='#333340';ctx.font='9px JetBrains Mono';
+  for(let i=0;i<=gridCount;i++){
+    const x=(i/gridCount)*W, y=(i/gridCount)*H;
+    ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();
+    ctx.fillText(Math.round(i*MAP/gridCount),x+3,12);
+    ctx.fillText(Math.round((gridCount-i)*MAP/gridCount),3,y+12);
+  }
+
+  const ox=parseFloat(state.map_offset_x)||0, oz=parseFloat(state.map_offset_z)||0;
+  // toS: raw world coords (players) → screen
+  const toS=(x,y)=>[((x-ox)/MAP)*W,(1-(y-oz)/MAP)*H];
+  // toG: grid-relative coords (grids already offset-adjusted) → screen
+  const toG=(x,y)=>[(x/MAP)*W,(1-y/MAP)*H];
+
+  // Valid grids (subtle)
+  (state.valid_spawn_grids||[]).forEach(g=>{
+    const p=g.split('-');if(p.length!==2)return;
+    const[sx,sy]=toG(parseInt(p[0])*10,parseInt(p[1])*10);
+    ctx.fillStyle='rgba(34,197,94,0.12)';ctx.beginPath();ctx.arc(sx,sy,2.5,0,Math.PI*2);ctx.fill();
+  });
+
+  // AI units
+  (state.ai_units?.groups||[]).forEach(g=>{
+    const p=(g.grid||'').split('-');if(p.length!==2)return;
+    const[sx,sy]=toG(parseInt(p[0])*10,parseInt(p[1])*10);
+    // Red diamond
+    ctx.fillStyle='rgba(239,68,68,0.8)';
+    ctx.beginPath();ctx.moveTo(sx,sy-5);ctx.lineTo(sx+5,sy);ctx.lineTo(sx,sy+5);ctx.lineTo(sx-5,sy);ctx.closePath();ctx.fill();
+    ctx.fillStyle='#ef4444';ctx.font='9px JetBrains Mono';
+    ctx.fillText(`${g.type}(${g.count})`,sx+8,sy+3);
+  });
+
+  // Players
+  (state.players||[]).forEach(p=>{
+    const px=parseFloat(p.pos?.x||0),py=parseFloat(p.pos?.y||0);
+    const[sx,sy]=toS(px,py);const alive=p.status==='alive';
+    // Blue circle with ring
+    ctx.fillStyle=alive?'#22d3ee':'rgba(34,211,238,0.3)';
+    ctx.beginPath();ctx.arc(sx,sy,alive?5:3,0,Math.PI*2);ctx.fill();
+    if(alive){ctx.strokeStyle='rgba(34,211,238,0.25)';ctx.lineWidth=1;ctx.beginPath();ctx.arc(sx,sy,14,0,Math.PI*2);ctx.stroke()}
+    ctx.fillStyle=alive?'#e4e4e7':'#52525b';ctx.font='11px Inter';
+    ctx.fillText(p.name,sx+10,sy-2);
+    ctx.fillStyle='#71717a';ctx.font='9px JetBrains Mono';
+    ctx.fillText(g6(px,py),sx+10,sy+10);
+  });
+}
+
+// ─── Chat ───────────────────────────────────────────────────────────────
+function addChat(text,type){
+  const div=document.getElementById('chatMessages');
+  const msg=document.createElement('div');
+  msg.className=`chat-msg ${type}`;
+  const sender=type==='user'?'YOU':type==='ai'?'ZEUS':'SYSTEM';
+  msg.innerHTML=`<div class="sender">${sender}</div><div class="body">${escHtml(text)}</div>`;
+  div.appendChild(msg);div.scrollTop=div.scrollHeight;
+}
+function escHtml(t){return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+
+async function sendChat(){
+  const input=document.getElementById('chatInput'),msg=input.value.trim();
+  if(!msg)return;addChat(msg,'user');input.value='';
+  try{
+    const r=await fetch(`${BASE}/api/chat`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})});
+    const d=await r.json();
+    if(d.reply)addChat(d.reply,'ai');
+    if(d.commands?.length){addChat(`${d.commands.length} command(s) queued`,'system');d.commands.forEach(c=>addLog(c))}
+  }catch(e){addChat(`Error: ${e.message}`,'system')}
+}
+
+// ─── Quick Command ──────────────────────────────────────────────────────
+async function qCmd(btn,prompt){
+  btn.classList.add('sending');addChat(prompt,'user');
+  try{
+    const r=await fetch(`${BASE}/api/chat`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:prompt})});
+    const d=await r.json();
+    if(d.reply)addChat(d.reply,'ai');
+    if(d.commands?.length){addChat(`${d.commands.length} command(s) queued`,'system');d.commands.forEach(c=>addLog(c))}
+    btn.classList.remove('sending');btn.classList.add('sent');setTimeout(()=>btn.classList.remove('sent'),2000);
+  }catch(e){addChat(`Error: ${e.message}`,'system');btn.classList.remove('sending')}
+}
+
+// ─── Command Log ────────────────────────────────────────────────────────
+function addLog(cmd){
+  const div=document.getElementById('cmdLog');
+  const el=document.createElement('div');el.className='log-item';
+  el.innerHTML=`<span class="type">${cmd.type}</span> <span class="detail">${cmd.units} x${cmd.count} @ ${cmd.grid} [${cmd.behavior}]</span>`;
+  div.insertBefore(el,div.firstChild);
+  if(div.children.length>40)div.lastChild.remove();
+}
+function addServerLog(entry){
+  const div=document.getElementById('serverLogList');
+  const el=document.createElement('div');el.className='slog';
+  const lvl=entry.level||'INFO';
+  const time=entry.time||'';
+  const msg=(entry.msg||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  el.innerHTML=`<span class="slog-time">${time}</span><span class="slog-level ${lvl}">${lvl}</span>${msg}`;
+  div.appendChild(el);
+  if(div.children.length>100)div.firstChild.remove();
+  // Auto-scroll to bottom
+  const panel=document.getElementById('serverLogPanel');
+  panel.scrollTop=panel.scrollHeight;
+}
+
+// ─── API Helpers ────────────────────────────────────────────────────────
+async function api(url,body={}){return(await fetch(`${BASE}${url}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json()}
+async function setMode(m){gmMode=m;await api('/api/config',{gm_mode:m});updateButtons()}
+async function toggleAI(){aiEnabled=!aiEnabled;await api('/api/config',{ai_enabled:aiEnabled});updateButtons()}
+async function triggerNow(){await api('/api/trigger')}
+async function warmup(){addChat('Warming up model on Spark...','system');const r=await api('/api/warmup');addChat(`Warmup complete (${(r.latency_ms/1000).toFixed(1)}s)`,'system')}
+async function deleteAllAI(){await api('/api/admin',{command:'delete_all'})}
+async function clearQueue(){await api('/api/admin',{command:'clear_queue'})}
+async function sendMission(){const t=document.getElementById('missionText').value.trim();if(t)await api('/api/mission',{briefing:t})}
+async function clearMission(){await fetch(`${BASE}/api/mission`,{method:'DELETE'});document.getElementById('missionText').value=''}
+async function manualSpawn(){await api('/api/admin',{command:'spawn',units:document.getElementById('spawnType').value,count:parseInt(document.getElementById('spawnCount').value),grid:document.getElementById('spawnGrid').value||'450-680',behavior:document.getElementById('spawnBehavior').value})}
+let diffTO,escTO;
+function setDifficulty(v){diff=parseInt(v);document.getElementById('diffVal').textContent=diff;clearTimeout(diffTO);diffTO=setTimeout(()=>api('/api/config',{difficulty:diff}),300)}
+function setEscalation(v){document.getElementById('escVal').textContent=v;clearTimeout(escTO);escTO=setTimeout(()=>api('/api/config',{escalation:parseInt(v)}),300)}
+
+// ─── Poll (fallback + metrics) ──────────────────────────────────────────
+async function poll(){
+  try{
+    const r=await fetch(`${BASE}/api/status`);const d=await r.json();
+    document.getElementById('dotSpark').className=d.bridge==='online'?'dot on':'dot off';
+    document.getElementById('modelName').textContent=d.model||'--';
+    document.getElementById('latency').textContent=d.last_ai_latency_ms?`${(d.last_ai_latency_ms/1000).toFixed(1)}s`:'--';
+    document.getElementById('pending').textContent=d.pending_commands;
+    document.getElementById('dispatched').textContent=d.total_commands_dispatched;
+    document.getElementById('mSpawns').textContent=d.total_spawns;
+    document.getElementById('mDecisions').textContent=d.total_decisions;
+    document.getElementById('mHeartbeats').textContent=d.total_heartbeats;
+    document.getElementById('mUptime').textContent=`${Math.floor(d.uptime_seconds/60)}m`;
+    document.getElementById('queryStatus').style.display=d.query_in_flight?'flex':'none';
+    aiEnabled=d.ai_enabled;gmMode=d.gm_mode;diff=d.difficulty;
+    if(d.escalation!=null){document.getElementById('escSlider').value=d.escalation;document.getElementById('escVal').textContent=d.escalation;}
+    updateEsc(d.escalation_level||0);updateButtons();
+    if(d.current_state&&d.current_state.players){state=d.current_state;updateUI();drawMap()}
+  }catch(e){document.getElementById('dotSpark').className='dot off'}
+}
+
+// ─── Resizable Panels ───────────────────────────────────────────────────
+(function(){
+  const layout=document.querySelector('.layout');
+  function initResize(handleId, side){
+    const handle=document.getElementById(handleId);
+    if(!handle) return;
+    let startX,startW;
+    handle.addEventListener('mousedown',e=>{
+      e.preventDefault();
+      handle.classList.add('dragging');
+      const panel=side==='left'?document.getElementById('leftPanel'):document.getElementById('rightPanel');
+      startX=e.clientX; startW=panel.offsetWidth;
+      function onMove(e){
+        const dx=e.clientX-startX;
+        const newW=side==='left'?Math.max(240,Math.min(600,startW+dx)):Math.max(300,Math.min(800,startW-dx));
+        layout.style.setProperty(side==='left'?'--left-w':'--right-w',newW+'px');
+        drawMap();
+      }
+      function onUp(){handle.classList.remove('dragging');document.removeEventListener('mousemove',onMove);document.removeEventListener('mouseup',onUp);}
+      document.addEventListener('mousemove',onMove);
+      document.addEventListener('mouseup',onUp);
+    });
+  }
+  initResize('leftHandle','left');
+  initResize('rightHandle','right');
+})();
+
+// ─── Init ───────────────────────────────────────────────────────────────
+connectWS();setInterval(poll,3000);poll();
+window.addEventListener('resize',drawMap);
+</script>
+</body>
+</html>

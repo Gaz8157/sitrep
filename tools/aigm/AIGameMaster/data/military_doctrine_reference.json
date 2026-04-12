@@ -1,0 +1,156 @@
+{
+  "version": "1.0",
+  "mission_types": {
+    "special_operations": {
+      "direct_action": {
+        "name": "Direct Action",
+        "description": "Short-duration strike against a high-value target. Fast ingress, decisive violence, fast egress. Enemy must be neutralized before they can react or reinforce.",
+        "phases": ["Staging (position forces 500m+ from objective)", "Breach (assault element makes first contact)", "Actions on Objective (neutralize target, exploit intel)", "Exfil (withdraw before QRF arrives)"],
+        "force_composition": "Assault element (1-2 rifle squads), Support element (1 MG or sniper team on overwatch), Reserve (1 squad 500m back as QRF block)",
+        "ai_escalation": [
+          "Phase 1: 1 sentry team at perimeter, 1 patrol on route",
+          "Phase 2 (player contact): commit reserve squad, change patrol to attack",
+          "Phase 3 (player inside objective): QRF vehicle arrives from alternate direction, reinforcement squad from 600m"
+        ],
+        "sub_types": {
+          "vip_elimination": {
+            "game_master_scenario": {
+              "setup": "Spawn 1 command composition as HQ, 2 sentry teams around it, 1 patrol on road",
+              "ai_escalation": ["QRF squad from 600m after first contact", "Vehicle QRF from town after 2 minutes of sustained contact", "Reinforcement wave of 2 squads if players breach the HQ perimeter"]
+            }
+          }
+        }
+      },
+      "special_reconnaissance": {
+        "name": "Special Reconnaissance",
+        "description": "Clandestine collection of intelligence without direct engagement. Enemy patrols avoid contact but will pursue if spotted. Atmosphere of tension and surveillance.",
+        "phases": ["Infiltration (patrols moving through area)", "Observation (static OP teams watching roads/key terrain)", "Extraction (patrols converge if players spotted)"],
+        "force_composition": "Multiple 2-man sentry teams, 1-2 light vehicle patrols, no static weapons",
+        "ai_escalation": [
+          "Phase 1: 3-4 sentry teams spread across area, behavior patrol",
+          "Phase 2 (player spotted): nearest 2 teams switch to hunt, broadcast CONTACT report",
+          "Phase 3 (player engaged): all patrols converge, vehicle patrol responds as QRF"
+        ],
+        "sub_types": {}
+      },
+      "personnel_recovery": {
+        "name": "Personnel Recovery",
+        "description": "Enemy holds a position of value. Players must reach and secure it under fire.",
+        "phases": ["Cordon (enemy has established perimeter)", "Approach (players push through outer security)", "Assault (hard contact at the holding position)", "Breakout (enemy pursues as players extract)"],
+        "force_composition": "Outer cordon (2 patrol teams), Inner guard (1 rifle squad at objective), Pursuit force (1 squad staged 400m away)",
+        "ai_escalation": [
+          "Phase 1: outer cordon patrolling, inner guard stationary defend",
+          "Phase 2 (player reaches inner perimeter): inner guard attacks, outer cordon converges",
+          "Phase 3 (player secures objective): pursuit force activates, vehicle QRF from 600m"
+        ],
+        "sub_types": {}
+      }
+    },
+    "conventional_operations": {
+      "deliberate_attack": {
+        "name": "Deliberate Attack",
+        "description": "Methodical assault on a prepared enemy position. Suppress, fix, flank, finish. Players must work through defensive layers.",
+        "phases": ["Suppression (MG/mortar fire on forward positions)", "Fix (rifle elements pin defenders)", "Flank (assault element attacks from unexpected axis)", "Exploitation (pursue retreating enemy)"],
+        "force_composition": "Forward screen (1-2 sentry teams), Defensive line (2 rifle squads in bunkers), Fire support (1 static MG or mortar), Reserve (1 squad behind defensive line)",
+        "ai_escalation": [
+          "Phase 1: forward screen patrols, defensive line on defend in composition",
+          "Phase 2 (player contact with forward screen): defensive line activates, fire support begins",
+          "Phase 3 (player breaches defensive line): reserve commits, vehicle QRF from flank"
+        ],
+        "sub_types": {}
+      },
+      "defense_in_depth": {
+        "name": "Defense in Depth",
+        "description": "Enemy yields ground slowly, trading space for casualties. Multiple defensive lines. High intensity attrition warfare.",
+        "phases": ["Forward Line (screen force delays players)", "Main Line (primary defense 300-600m back)", "Reserve (counterattack force behind main line)"],
+        "force_composition": "Screen line (1 rifle squad, light vehicles), Main line (2 squads in bunkers, 1 static MG), Counterattack (1 squad + vehicle staged 600m behind)",
+        "ai_escalation": [
+          "Phase 1: screen force engages, falls back after taking 50% casualties",
+          "Phase 2: main line engages from prepared positions, static MG provides overwatch",
+          "Phase 3 (main line broken): counterattack force advances"
+        ],
+        "sub_types": {}
+      },
+      "ambush": {
+        "name": "Ambush",
+        "description": "Surprise attack from concealed positions along a player route. Maximum violence of action in minimum time.",
+        "phases": ["Emplacement (forces position silently before players arrive)", "Initiation (triggered by player entering kill zone)", "Assault (all elements open fire simultaneously)", "Withdrawal (break contact and reposition if players counterattack)"],
+        "force_composition": "Assault line (1-2 squads on one side of road/path), Cut-off team (1 team blocking retreat 200m ahead), Optional sniper on elevation",
+        "ai_escalation": [
+          "Phase 1: ambush teams stationary on defend BEFORE player reaches kill zone",
+          "Phase 2 (player in kill zone): all teams switch to attack simultaneously",
+          "Phase 3 (player breaks through): pursuit team follows, block team repositions"
+        ],
+        "sub_types": {}
+      },
+      "convoy_operations": {
+        "name": "Convoy Attack",
+        "description": "Enemy convoy moving through the area. Players intercept and destroy. Vehicles are priority targets.",
+        "phases": ["Movement (convoy on road)", "Contact (players engage lead vehicle)", "Dismount (enemy dismounts and forms hasty defense)", "Reinforcement (QRF from nearest enemy position)"],
+        "force_composition": "Convoy (2-3 vehicles on patrol route), Dismount security (4-6 infantry per vehicle), QRF (1 squad at 400m)",
+        "ai_escalation": [
+          "Phase 1: vehicles on patrol behavior along road route",
+          "Phase 2 (vehicle destroyed or contact): remaining vehicles stop, infantry dismount to attack",
+          "Phase 3 (convoy mostly destroyed): QRF activates from 600m"
+        ],
+        "sub_types": {}
+      },
+      "urban_operations": {
+        "name": "Urban Operations",
+        "description": "Fighting through built-up area. Short sight lines. Every building a potential threat.",
+        "phases": ["Outer cordon (block routes into town)", "Building clearance (systematic room by room)", "Hold (enemy reinforces from other part of town)"],
+        "force_composition": "Street teams (1 squad per major road axis), Building guards (2-man sentry in key buildings), Reserve (1 squad for counterattack)",
+        "ai_escalation": [
+          "Phase 1: sentry teams in buildings near town entrance, vehicles at road junctions",
+          "Phase 2 (player enters town): inner squads activate, street teams converge",
+          "Phase 3 (player deep in town): reserve squad flanks from opposite side"
+        ],
+        "sub_types": {}
+      },
+      "patrol_operations": {
+        "name": "Area Security Patrol",
+        "description": "Enemy controlling an area with mobile patrols. Low initial intensity, escalates if players spotted.",
+        "phases": ["Routine patrol (normal coverage)", "Alert (patrol spots player sign)", "Reaction (patrols converge on suspected contact)"],
+        "force_composition": "2-3 patrol teams on different routes, 1 QRF team staged at central point",
+        "ai_escalation": [
+          "Phase 1: patrol teams on patrol behavior, random routes",
+          "Phase 2 (player spotted or shot): nearest patrol switches to hunt, QRF activates",
+          "Phase 3 (sustained contact): all patrols converge, request reinforcement squad from 800m"
+        ],
+        "sub_types": {}
+      },
+      "checkpoint_operations": {
+        "name": "Checkpoint Control",
+        "description": "Enemy controls key road junction or crossing. Players must either bypass or assault through.",
+        "phases": ["Checkpoint active (guards at post)", "Alert (suspicious activity)", "Reinforcement (QRF from nearby base)"],
+        "force_composition": "Checkpoint guards (1 team at post), Overwatch (1 sniper or MG on elevation), QRF (1 squad at 400m)",
+        "ai_escalation": [
+          "Phase 1: guards on defend at checkpoint composition, overwatch stationary",
+          "Phase 2 (player approaches or fires): guards engage, overwatch activates",
+          "Phase 3 (checkpoint taken): QRF advances"
+        ],
+        "sub_types": {}
+      }
+    }
+  },
+  "combined_arms_principles": {
+    "suppress_fix_flank_finish": "Suppress enemy with fire, fix them in place with a unit, flank with a separate element, finish with assault",
+    "overwatch_and_bound": "One element fires while another moves. Never move without fire support.",
+    "vehicle_infantry_cooperation": "Vehicles provide fire support and mobility. Infantry clears terrain vehicles cannot enter. Never send a vehicle without infantry support.",
+    "reserve_commitment": "Never commit your reserve early. Hold it until the decisive moment.",
+    "depth_not_width": "Layer defenses in depth rather than a single wide line."
+  },
+  "escalation_ladder": {
+    "0_green": "No contact. Patrol and area control only. 1-2 teams max.",
+    "1_yellow": "Player activity detected. Patrols increase, sentries alert. 2-3 teams.",
+    "2_orange": "Contact made. QRF commits, reinforcements stage. 4-6 teams.",
+    "3_red": "Sustained firefight. All reserves committed. Vehicle QRF. 6-10 teams.",
+    "4_black": "Critical position threatened. Maximum effort. All available forces. 10+ teams."
+  },
+  "vehicle_tactics": {
+    "apc_assault": "1. SPAWN APC at staging grid (500m+ from players). 2. SPAWN infantry squad at same grid with behavior defend (they board nearby vehicle). 3. On next heartbeat: MOVE APC to assault grid with behavior attack. 4. SPAWN dismount infantry at assault grid to reinforce.",
+    "vehicle_patrol": "SPAWN vehicle at one end of road. MOVE to far waypoint with behavior patrol. SPAWN infantry at midpoint as dismounted security.",
+    "qrf_response": "When players engage a position: SPAWN vehicle at a grid 600m+ away. MOVE toward contact with behavior attack. BROADCAST QRF en route to set player expectation.",
+    "overwatch_gun": "SPAWN static weapon (HMG, mortar) on elevated grid. SET_BEHAVIOR to defend. Creates persistent fire support that changes the tactical equation."
+  }
+}
