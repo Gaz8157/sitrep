@@ -90,6 +90,10 @@ export default function AiGm({toast}){
   const[warmingUp,setWarmingUp]=useState(false);const[unloading,setUnloading]=useState(false)
   const[scfg,setScfg]=useState(null);const[scfgLoading,setScfgLoading]=useState(false)
   const[modelCfg,setModelCfg]=useState(null);const[modelCfgSaving,setModelCfgSaving]=useState(false)
+  const[showSettings,setShowSettings]=useState(false)
+  const[bridgeSettings,setBridgeSettings]=useState(null)
+  const[settingsSaving,setSettingsSaving]=useState(false)
+  const[showRconPw,setShowRconPw]=useState(false)
   const[availableModels,setAvailableModels]=useState([])
   const[mission,setMission]=useState('');const[missionSaved,setMissionSaved]=useState('')
   // OPORD editor state
@@ -299,6 +303,8 @@ export default function AiGm({toast}){
   const clearMission=async()=>{const r=await del(`${API}/aigm/mission`);if(r?.error)toast(r.error,'danger');else{toast('Mission cleared','warning');setMission('');setMissionSaved('')}}
   const saveScfg=async()=>{const r=await post(`${API}/aigm/session-config`,scfg);if(r.error)toast(r.error,'danger');else toast('Session config saved')}
   const saveModelCfg=async(updates)=>{setModelCfgSaving(true);const r=await post(`${API}/aigm/model-config`,updates);setModelCfgSaving(false);if(r.error)toast(r.error,'danger');else{setModelCfg(p=>({...p,...updates}));toast('Model config saved')}}
+  const openSettings=async()=>{setShowSettings(true);setShowRconPw(false);const r=await fetch(`${API}/aigm/bridge-settings`,{headers:authHeaders()});if(r.status===401){on401();return};const j=await r.json();setBridgeSettings(j)}
+  const saveSettings=async()=>{if(!bridgeSettings)return;setSettingsSaving(true);const r=await post(`${API}/aigm/bridge-settings`,{...bridgeSettings,rcon_password:showRconPw?bridgeSettings.rcon_password:undefined});setSettingsSaving(false);if(r.error)toast(r.error,'danger');else{toast(r.restarted?'Saved — bridge restarting…':'Saved');setShowSettings(false)}}
   const saveOpord=async()=>{
     setOpordSaving(true)
     const r=await post(`${API}/aigm/opord/save`,opord)
@@ -355,6 +361,7 @@ export default function AiGm({toast}){
       <div className="flex items-center gap-3 mb-1">
         <h2 className="font-black" style={{color:C.textBright,fontSize:sz.base+4}}>AI Game Master</h2>
         <Badge text="OFFLINE" v="danger"/>
+        <button onClick={openSettings} title="Bridge settings" style={{marginLeft:'auto',background:'transparent',border:`1px solid ${C.border}`,borderRadius:6,padding:'4px 8px',cursor:'pointer',color:C.textMuted,fontSize:14,lineHeight:1}} onMouseEnter={e=>e.currentTarget.style.color=C.cyan} onMouseLeave={e=>e.currentTarget.style.color=C.textMuted}>⚙</button>
       </div>
       <Card className="p-5">
         <div className="font-black mb-1" style={{color:C.textBright,fontSize:sz.base+2}}>Bridge not running</div>
@@ -652,6 +659,7 @@ export default function AiGm({toast}){
           {[['ops','Ops Center'],['opord','OPORD Editor'],['config','Config'],['aar','After Action']].map(([id,lbl])=>tBtn(id,lbl))}
         </div>
         <div className="flex gap-2 items-center" style={{borderLeft:`1px solid ${TC.borderDim}`,paddingLeft:12,marginLeft:4}}>
+          <button onClick={openSettings} title="Bridge settings" style={{background:'transparent',border:`1px solid ${TC.borderDim}`,borderRadius:6,padding:'4px 8px',cursor:'pointer',color:TC.textMuted,fontSize:14,lineHeight:1}} onMouseEnter={e=>e.currentTarget.style.color=TC.cyan} onMouseLeave={e=>e.currentTarget.style.color=TC.textMuted}>⚙</button>
           <Btn small v="ghost" onClick={startBridge} disabled={starting}>{starting?'Starting…':'Restart'}</Btn>
           <Btn small v="danger" onClick={stopBridge}>Stop</Btn>
         </div>
@@ -1440,6 +1448,61 @@ export default function AiGm({toast}){
                   </div>
                 )
               })}
+            </div>
+          </div>}
+        </div>
+      </div>}
+
+      {/* ── SETTINGS MODAL ─── */}
+      {showSettings&&<div className="fixed inset-0 z-50 flex items-center justify-center" style={{background:'rgba(0,0,0,0.6)'}} onClick={e=>{if(e.target===e.currentTarget)setShowSettings(false)}}>
+        <div className="rounded-xl shadow-2xl w-full max-w-md mx-4" style={{background:TC.surface,border:`1px solid ${TC.border}`}}>
+          <div className="flex items-center justify-between px-5 py-4" style={{borderBottom:`1px solid ${TC.border}`}}>
+            <span className="font-black" style={{fontSize:sz.base+2,color:TC.text}}>AI GM Settings</span>
+            <button onClick={()=>setShowSettings(false)} style={{background:'transparent',border:'none',cursor:'pointer',color:TC.textMuted,fontSize:18,lineHeight:1,padding:'2px 6px'}} onMouseEnter={e=>e.currentTarget.style.color=TC.text} onMouseLeave={e=>e.currentTarget.style.color=TC.textMuted}>✕</button>
+          </div>
+          {!bridgeSettings?<div className="p-6 text-center" style={{color:TC.textMuted}}>Loading…</div>:
+          <div className="p-5 space-y-4">
+            {!bridgeSettings.env_exists&&<div className="px-3 py-2 rounded-lg text-sm" style={{background:TC.redDim,color:TC.red,border:`1px solid ${TC.redBorder}`}}>Bridge .env not found — run the AI GM installer first.</div>}
+            <div>
+              <div className="mb-3" style={{fontSize:9,fontWeight:700,letterSpacing:'2px',color:TC.textMuted,textTransform:'uppercase'}}>RCON Connection</div>
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <label style={{display:'block',fontSize:10,fontWeight:600,color:TC.textMuted,marginBottom:3}}>Host</label>
+                    <input value={bridgeSettings.rcon_host||''} onChange={e=>setBridgeSettings(p=>({...p,rcon_host:e.target.value}))} className="w-full rounded-md px-3 py-2 outline-none font-mono" style={{background:TC.surface2,border:`1px solid ${TC.border}`,color:TC.text,fontSize:sz.stat}}/>
+                  </div>
+                  <div style={{width:80}}>
+                    <label style={{display:'block',fontSize:10,fontWeight:600,color:TC.textMuted,marginBottom:3}}>Port</label>
+                    <input value={bridgeSettings.rcon_port||''} onChange={e=>setBridgeSettings(p=>({...p,rcon_port:e.target.value}))} className="w-full rounded-md px-3 py-2 outline-none font-mono" style={{background:TC.surface2,border:`1px solid ${TC.border}`,color:TC.text,fontSize:sz.stat}}/>
+                  </div>
+                </div>
+                <div>
+                  <label style={{display:'block',fontSize:10,fontWeight:600,color:TC.textMuted,marginBottom:3}}>Password</label>
+                  <div className="flex gap-2">
+                    <input type={showRconPw?'text':'password'} value={bridgeSettings.rcon_password||''} onChange={e=>setBridgeSettings(p=>({...p,rcon_password:e.target.value}))} placeholder={bridgeSettings.rcon_password_set?'Leave blank to keep current':'Enter RCON password'} className="flex-1 rounded-md px-3 py-2 outline-none font-mono" style={{background:TC.surface2,border:`1px solid ${TC.border}`,color:TC.text,fontSize:sz.stat}}/>
+                    <button onClick={()=>setShowRconPw(v=>!v)} style={{padding:'0 10px',borderRadius:6,border:`1px solid ${TC.border}`,background:TC.surface2,color:TC.textMuted,cursor:'pointer',fontSize:12}} title={showRconPw?'Hide':'Show'}>{showRconPw?'🙈':'👁'}</button>
+                  </div>
+                  {bridgeSettings.rcon_password_set&&!bridgeSettings.rcon_password&&<div style={{fontSize:10,color:TC.textMuted,marginTop:3}}>Password is set — leave blank to keep it unchanged.</div>}
+                </div>
+              </div>
+            </div>
+            <div>
+              <div className="mb-3" style={{fontSize:9,fontWeight:700,letterSpacing:'2px',color:TC.textMuted,textTransform:'uppercase'}}>Ollama</div>
+              <div className="space-y-2">
+                <div>
+                  <label style={{display:'block',fontSize:10,fontWeight:600,color:TC.textMuted,marginBottom:3}}>URL</label>
+                  <input value={bridgeSettings.ollama_url||''} onChange={e=>setBridgeSettings(p=>({...p,ollama_url:e.target.value}))} className="w-full rounded-md px-3 py-2 outline-none font-mono" style={{background:TC.surface2,border:`1px solid ${TC.border}`,color:TC.text,fontSize:sz.stat}}/>
+                </div>
+                <div>
+                  <label style={{display:'block',fontSize:10,fontWeight:600,color:TC.textMuted,marginBottom:3}}>Model</label>
+                  <input value={bridgeSettings.ollama_model||''} onChange={e=>setBridgeSettings(p=>({...p,ollama_model:e.target.value}))} className="w-full rounded-md px-3 py-2 outline-none font-mono" style={{background:TC.surface2,border:`1px solid ${TC.border}`,color:TC.text,fontSize:sz.stat}}/>
+                </div>
+              </div>
+            </div>
+            {bridgeSettings.env_path&&<div style={{fontSize:10,color:TC.textMuted,fontFamily:'monospace'}}>{bridgeSettings.env_path}</div>}
+            <div className="flex gap-2 pt-1">
+              <Btn className="flex-1" onClick={saveSettings} disabled={settingsSaving||!bridgeSettings.env_exists}>{settingsSaving?'Saving…':'Save & Restart Bridge'}</Btn>
+              <Btn v="ghost" onClick={()=>setShowSettings(false)}>Cancel</Btn>
             </div>
           </div>}
         </div>
