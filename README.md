@@ -286,21 +286,23 @@ This mod provides the in-game component that connects the running scenario to th
 
 ### Step 2 — Install the AI GM bridge
 
+The bridge is bundled with the panel. Run the installer:
+
 ```bash
-git clone https://github.com/gaz8157/AIGameMaster.git ~/AIGameMaster
-cd ~/AIGameMaster
-bash install.sh
+sudo bash /opt/panel/scripts/install-aigm.sh
 ```
 
 The installer will:
-1. Install Ollama and pull the recommended model for your GPU
-2. Create `~/AIGameMaster/AIGameMaster/.env` from the template
-3. Register `aigm-bridge` as a systemd service
+1. Set up a Python virtualenv and install dependencies
+2. Check Ollama and pull the configured model if reachable
+3. Create `/opt/panel/tools/aigm/AIGameMaster/.env` from the template
+4. Register `aigm-bridge` as a systemd service
+5. Update the panel `.env` with the bridge path and restart the panel
 
 ### Step 3 — Configure the bridge
 
 ```bash
-nano ~/AIGameMaster/AIGameMaster/.env
+nano /opt/panel/tools/aigm/AIGameMaster/.env
 ```
 
 Set your Arma server's RCON details:
@@ -310,20 +312,7 @@ RCON_PORT=19999
 RCON_PASSWORD=your_rcon_password
 ```
 
-### Step 4 — Restart the panel
-
-```bash
-sudo systemctl restart sitrep-api
-```
-
-The panel auto-detects the AI GM bridge at `~/AIGameMaster`. If you installed it to a custom location, add these to `/opt/panel/.env` before restarting:
-
-```
-AIGM_DIR=/custom/path/to/AIGameMaster
-AIGM_BRIDGE_PATH=/custom/path/to/AIGameMaster/AIGameMaster/bridge.py
-```
-
-### Step 5 — Start the bridge
+### Step 4 — Start the bridge
 
 ```bash
 sudo systemctl start aigm-bridge

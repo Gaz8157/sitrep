@@ -2,6 +2,17 @@
 
 ---
 
+## 2026-04-11 (5)
+
+### README.md
+- Fixed AI GM install steps: removed broken `git clone https://github.com/gaz8157/AIGameMaster.git` — bridge is bundled with the panel, no separate repo needed
+- Step 2 now points to `sudo bash /opt/panel/scripts/install-aigm.sh` which installs from `tools/aigm/` bundled in the panel repo
+- Updated bridge `.env` path to match bundled location: `/opt/panel/tools/aigm/AIGameMaster/.env`
+- Removed redundant Step 4 (panel restart) — `scripts/install-aigm.sh` already handles it
+- Steps renumbered: 4 steps total
+
+---
+
 ## 2026-04-11 (4)
 
 ### install.sh
