@@ -963,28 +963,12 @@ def _run_diagnostics() -> dict:
     except Exception as e:
         add("aigm_bridge_service", "AI GM bridge check failed", "warn", detail=str(e))
 
-    # 13. player-tracker.service status
-    try:
-        r = subprocess.run(
-            ["systemctl", "is-active", "player-tracker"],
-            capture_output=True, timeout=3
-        )
-        state = r.stdout.decode(errors="ignore").strip()
-        if state == "active":
-            add("player_tracker_service", "PlayerTracker relay running", "ok")
-        elif state == "inactive":
-            add("player_tracker_service", "PlayerTracker relay stopped", "warn",
-                detail="Start with: sudo systemctl start player-tracker")
-        elif state == "failed":
-            add("player_tracker_service", "PlayerTracker relay failed", "fail",
-                detail="sudo systemctl status player-tracker for details")
-        elif r.returncode != 0 and b"not-found" in r.stderr:
-            add("player_tracker_service", "PlayerTracker relay not installed", "warn",
-                detail="Install via /opt/panel/tools/player-tracker/Relay/install.sh")
-        else:
-            add("player_tracker_service", f"PlayerTracker relay: {state}", "warn")
-    except Exception as e:
-        add("player_tracker_service", "PlayerTracker relay check failed", "warn", detail=str(e))
+    # 13. PlayerTracker API key configured
+    if PLAYERTRACKER_API_KEY:
+        add("playertracker_key", "PlayerTracker API key configured", "ok")
+    else:
+        add("playertracker_key", "PlayerTracker API key not set", "warn",
+            detail="Set PLAYERTRACKER_API_KEY in .env — the mod won't authenticate without it")
 
     fails = sum(1 for c in checks if c["status"] == "fail")
     warns = sum(1 for c in checks if c["status"] == "warn")
@@ -2046,14 +2030,6 @@ def _fix_aigm_bridge_service():
     if r.returncode != 0:
         raise RuntimeError(r.stderr.decode(errors="ignore").strip() or "systemctl restart failed")
 
-@_register_fix("player_tracker_service")
-def _fix_player_tracker_service():
-    r = subprocess.run(
-        ["sudo", "systemctl", "restart", "player-tracker"],
-        capture_output=True, timeout=15
-    )
-    if r.returncode != 0:
-        raise RuntimeError(r.stderr.decode(errors="ignore").strip() or "systemctl restart failed")
 
 _FIX_ALLOWED_ROLES = {"owner", "head_admin", "admin"}
 

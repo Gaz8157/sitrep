@@ -9,7 +9,7 @@ const STATUS_META = {
   fail: { label: 'FAIL', symbol: '■' },
 }
 
-const AUTO_FIXABLE = new Set(['panel_data_writable', 'aigm_bridge_service', 'player_tracker_service'])
+const AUTO_FIXABLE = new Set(['panel_data_writable', 'aigm_bridge_service'])
 
 const statusColor = (C, status) =>
   status === 'ok'   ? C.accent

@@ -129,130 +129,73 @@ tools/aigm/
 
 ---
 
-## Tool 2: PlayerTracker Relay
+## Tool 2: PlayerTracker Mod
 
 ### How it works
 
 ```
-Arma mod (Workshop install) → POST /track → Relay server (port 5556)
-                                                  ↓
-                                         SQLite (tracker.db)
-                                                  ↓
-                                    Mercury Enable ATAK webhook (optional)
+Arma Reforger server
+  └── PlayerTrackerComponent.c (EnScript mod)
+        ├── POST /api/tracker/track  →  panel backend (in-memory + SQLite)
+        └── POST /api/tracker/event →  panel backend
+                                              ↓
+                                     WebSocket /ws/tracker
+                                              ↓
+                                     panel Tracker tab (live map)
+                                              ↓
+                              forward destinations (Mercury/ATAK, webhooks)
 ```
 
-The Arma mod is installed via the **Arma Reforger Workshop** — it has nothing to
-do with the panel installer. Once the server loads the mod, the mod POSTs player
-snapshots to the relay.
+The mod is an EnScript component added to a scenario in Arma Reforger Workbench.
+Once deployed, it POSTs player snapshots and game events directly to the panel's
+built-in `/api/tracker/*` endpoints — **no separate relay process required**.
 
-The relay is STANDALONE. It does not integrate with the panel's own tracker
-system — it handles Mercury/ATAK forwarding and AAR replay data.
-
-The panel's built-in tracker tab (`/api/tracker/track`) receives data DIRECTLY
-from the mod via a separate endpoint. Both can run simultaneously.
+The panel handles everything: in-memory state, SQLite persistence, WebSocket
+broadcast to the Tracker tab, and configurable forwarding destinations (e.g.
+Mercury Enable ATAK).
 
 ### Installation
 
 ```bash
-cd /opt/panel/tools/player-tracker/Relay
-bash install.sh
+cd /opt/panel/tools/player-tracker
+bash install.sh [--mods-dir /path/to/arma/mods] [--panel-env /path/to/.env]
 ```
 
-The installer:
-1. Creates a virtualenv and installs `requirements.txt`
-2. Copies `config.json` to `config.local.json` for editing
-3. Installs `player-tracker.service` systemd unit
+The installer copies `mod/PlayerTrackerComponent.c` into the Arma mods directory
+and prints the API key to configure in Workbench.
 
-### Configuration
+Default paths:
+- `--mods-dir` → `/opt/arma-reforger/mods`
+- `--panel-env` → `/opt/panel/.env` (reads `PLAYERTRACKER_API_KEY`)
 
-Edit `config.json`:
+### Workbench configuration
 
-```json
-{
-  "port": 5556,
-  "api_key": "<change this>",
-  "mercury_webhook_url": "<Mercury Enable ATAK webhook URL, or empty>",
-  "db_path": "tracker.db",
-  "session_gap_minutes": 5
-}
-```
+After running the installer, open your scenario in Arma Reforger Workbench:
 
-Environment variables (override config):
+1. Add `PlayerTrackerComponent` to the game mode entity.
+2. Set **Webhook base URL** → `http://<panel-host>:8000/` (trailing slash required).
+3. Set **API key** → value of `PLAYERTRACKER_API_KEY` from the panel `.env`.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PT_API_KEY` | `changeme` | Auth key the mod sends |
-| `PT_DB_PATH` | `tracker.db` | SQLite database path |
-| `PT_MERCURY_URL` | `""` | Mercury webhook URL (leave blank to disable) |
-| `PT_SESSION_GAP` | `300` | Seconds gap = new session |
-| `PT_PORT` | `5556` | Listen port |
+The mod derives `server_id` automatically from `DSConfig.publicAddress:publicPort`.
 
-### API
+### Panel configuration
 
-#### `POST /track`
+The panel reads one env var:
 
-Receives a player snapshot from the mod.
+| Variable | Description |
+|----------|-------------|
+| `PLAYERTRACKER_API_KEY` | Shared secret — must match the mod's Workbench attribute |
 
-```json
-{
-  "server_id": "my-server",
-  "api_key": "...",
-  "game": "ArmaReforger",
-  "timestamp": 1744300800,
-  "map": "Everon",
-  "session_time": 100,
-  "players_alive": 4,
-  "players_total": 4,
-  "players": [{
-    "uid": "...",
-    "name": "PlayerName",
-    "status": "alive",
-    "grid": "0628-0628",
-    "x": 6283.4,
-    "z": 6281.7,
-    "elevation": 45,
-    "heading": 270.5,
-    "heading_dir": "W",
-    "faction": "US",
-    "health": 0.87,
-    "in_vehicle": false,
-    "vehicle_type": "",
-    "is_squad_leader": false,
-    "squad_id": 1,
-    "squad_name": "Squad 1",
-    "is_admin": false,
-    "nearest_location": {"name": "Entre Due", "type": "village", "dist": 340}
-  }]
-}
-```
-
-#### `POST /event`
-
-Receives a game event (kill, join, leave, spawn).
-
-```json
-{
-  "server_id": "my-server",
-  "api_key": "...",
-  "event_type": "kill",
-  "timestamp": 1744300800,
-  "data": {}
-}
-```
+Set or rotate the key via **Settings → Tracker** in the panel UI, or edit `.env`
+directly and restart the panel.
 
 ### Files
 
 ```
 tools/player-tracker/
-├── README.md
-└── Relay/
-    ├── install.sh
-    ├── server.py          ← FastAPI relay server
-    ├── config.json        ← defaults (api_key: "changeme")
-    ├── requirements.txt
-    └── tests/
-        ├── __init__.py
-        └── conftest.py
+├── install.sh
+└── mod/
+    └── PlayerTrackerComponent.c
 ```
 
 ---
@@ -309,12 +252,11 @@ roles (owner, head_admin, admin, moderator, viewer, demo).
 │   │           ├── .env.local.example
 │   │           └── src/
 │   └── player-tracker/
-│       └── Relay/
-│           ├── install.sh
-│           ├── server.py
-│           ├── config.json
-│           ├── requirements.txt
-│           └── tests/
+│       ├── install.sh
+│       └── mod/
+│           └── PlayerTrackerComponent.c
 └── docs/
-    └── TOOLS_INTEGRATION.md   ← this file
+    └── 2026-04-11/
+        └── tools/
+            └── tools-integration.md   ← this file
 ```

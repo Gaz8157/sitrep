@@ -1,7 +1,0 @@
-{
-  "port": 5556,
-  "api_key": "changeme",
-  "mercury_webhook_url": "",
-  "db_path": "tracker.db",
-  "session_gap_minutes": 5
-}
