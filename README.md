@@ -31,7 +31,7 @@ Built with FastAPI + React.
 
 ### Optional modules
 - **AI Game Master** — LLM-driven game master; spawns enemies, adjusts difficulty, reacts to players in real time (requires mod ID `68E44E4AE677D389` + bridge setup)
-- **Player Tracker** — live player positions, 8/10-digit MGRS grids, AAR replay, Mercury Enable / ATAK feed (requires mod ID `691608368426C1F2`)
+- **Player Tracker** — live player positions, 8/10-digit MGRS grids, player status, faction, squad, and nearest location (requires mod ID `691608368426C1F2`)
 - **System** — owner-only self-diagnostics with 10 health checks and traffic-light status
 
 ### Platform
@@ -124,13 +124,13 @@ cp .env.example .env
 nano .env   # set PANEL_URL to your server's address
 
 # Systemd service
-sudo tee /etc/systemd/system/sitrep-api.service > /dev/null << 'EOF'
+sudo tee /etc/systemd/system/sitrep-api.service > /dev/null << EOF
 [Unit]
 Description=SITREP Panel
 After=network.target
 
 [Service]
-User=YOUR_USERNAME
+User=$(id -un)
 WorkingDirectory=/opt/panel/backend
 EnvironmentFile=-/opt/panel/.env
 ExecStart=/opt/panel/backend/.venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
@@ -310,17 +310,17 @@ RCON_PORT=19999
 RCON_PASSWORD=your_rcon_password
 ```
 
-### Step 4 — Link the panel to the bridge
+### Step 4 — Restart the panel
 
-Add to `/opt/panel/.env`:
-```
-AIGM_DIR=/home/YOUR_USERNAME/AIGameMaster
-AIGM_BRIDGE_PATH=/home/YOUR_USERNAME/AIGameMaster/AIGameMaster/bridge.py
-```
-
-Then restart the panel:
 ```bash
 sudo systemctl restart sitrep-api
+```
+
+The panel auto-detects the AI GM bridge at `~/AIGameMaster`. If you installed it to a custom location, add these to `/opt/panel/.env` before restarting:
+
+```
+AIGM_DIR=/custom/path/to/AIGameMaster
+AIGM_BRIDGE_PATH=/custom/path/to/AIGameMaster/AIGameMaster/bridge.py
 ```
 
 ### Step 5 — Start the bridge
@@ -335,7 +335,7 @@ The **AI Game Master** tab in the panel will show **ONLINE** once the bridge is 
 
 ## Player Tracker (Optional)
 
-The Tracker tab shows live player positions, 8/10-digit MGRS grid references, After-Action Review (AAR) replay data, and a feed compatible with ATAK and Mercury Enable for real-time blue-force tracking. It requires one server-side Arma Reforger mod — no relay process needed. The mod posts directly to the panel's ingest endpoints.
+The Tracker tab shows live player positions, 8/10-digit MGRS grid references, player status, faction, squad, and nearest location. It requires one server-side Arma Reforger mod — no relay process needed. The mod posts directly to the panel's ingest endpoints.
 
 The tab is hidden by default. It only appears for owner / head_admin / admin accounts, and only while the mod is actively reporting (disappears within 90 seconds of the mod going silent or the server restarting).
 
@@ -517,10 +517,9 @@ Run this to remove every file installed by SITREP and the Arma Reforger server i
 
 ```bash
 # Stop and remove all SITREP services
-sudo systemctl disable --now sitrep-api sitrep-web sitrep-tracker 2>/dev/null
+sudo systemctl disable --now sitrep-api sitrep-web 2>/dev/null
 sudo rm -f /etc/systemd/system/sitrep-api.service
 sudo rm -f /etc/systemd/system/sitrep-web.service
-sudo rm -f /etc/systemd/system/sitrep-tracker.service
 
 # Stop and remove AI GM bridge
 sudo systemctl disable --now aigm-bridge 2>/dev/null
@@ -576,7 +575,7 @@ This refreshes sudoers, syncs deps, rebuilds, and restarts. All 10 checks should
 
 **Arma server won't download during install**
 ```bash
-sudo -u YOUR_USERNAME /usr/games/steamcmd +force_install_dir /opt/arma-server +login anonymous +app_update 1874900 validate +quit
+sudo -u "$(id -un)" /usr/games/steamcmd +force_install_dir /opt/arma-server +login anonymous +app_update 1874900 validate +quit
 ```
 
 **Startup diagnostics shows broken mods**

@@ -114,7 +114,7 @@ def _get_disk_stats():
             pass
     return disks
 
-AIGM_DIR  = Path(os.environ.get("AIGM_DIR", str(Path.home() / "AIGameMaster")))
+AIGM_DIR  = Path(os.path.expanduser(os.environ.get("AIGM_DIR", str(Path.home() / "AIGameMaster"))))
 SAFE_DIRS = [ARMA_DIR, PROFILE_DIR, AIGM_DIR]
 
 MAT_DIR       = ARMA_DIR / "profile/profile" / MAT_PROFILE_DIR_NAME
@@ -928,6 +928,48 @@ def _run_diagnostics() -> dict:
         else:
             add("uv_lock", "Python lockfile up to date", "ok")
 
+    # 11. Ollama reachability (best-effort HTTP probe)
+    ollama_url = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
+    try:
+        import urllib.request as _urlreq
+        req = _urlreq.Request(ollama_url, method="GET")
+        with _urlreq.urlopen(req, timeout=2):
+            pass
+        add("ollama_reachable", "Ollama reachable", "ok", detail=ollama_url)
+    except Exception as e:
+        add("ollama_reachable", "Ollama not reachable", "warn",
+            detail=f"{ollama_url} — {e}. AI GM bridge requires Ollama running.")
+
+    # 12. aigm-bridge.service status
+    try:
+        r = subprocess.run(
+            ["systemctl", "is-active", "aigm-bridge"],
+            capture_output=True, timeout=3
+        )
+        state = r.stdout.decode(errors="ignore").strip()
+        if state == "active":
+            add("aigm_bridge_service", "AI GM bridge service running", "ok")
+        elif state == "inactive":
+            add("aigm_bridge_service", "AI GM bridge service stopped", "warn",
+                detail="Start from the AI GM tab or: sudo systemctl start aigm-bridge")
+        elif state == "failed":
+            add("aigm_bridge_service", "AI GM bridge service failed", "fail",
+                detail="sudo systemctl status aigm-bridge for details")
+        elif r.returncode != 0 and b"not-found" in r.stderr:
+            add("aigm_bridge_service", "AI GM bridge not installed", "warn",
+                detail="Install via /opt/panel/tools/aigm/install.sh")
+        else:
+            add("aigm_bridge_service", f"AI GM bridge service: {state}", "warn")
+    except Exception as e:
+        add("aigm_bridge_service", "AI GM bridge check failed", "warn", detail=str(e))
+
+    # 13. PlayerTracker API key configured
+    if PLAYERTRACKER_API_KEY:
+        add("playertracker_key", "PlayerTracker API key configured", "ok")
+    else:
+        add("playertracker_key", "PlayerTracker API key not set", "warn",
+            detail="Set PLAYERTRACKER_API_KEY in .env — the mod won't authenticate without it")
+
     fails = sum(1 for c in checks if c["status"] == "fail")
     warns = sum(1 for c in checks if c["status"] == "warn")
     overall = "fail" if fails else ("warn" if warns else "ok")
@@ -1032,10 +1074,27 @@ def get_system_stats():
     cpu_pct = psutil.cpu_percent(interval=0.1)
     cpu_freq = psutil.cpu_freq()
     cpu_temp = 0
+    gpu_temp_psutil = 0
     try:
-        for name, entries in psutil.sensors_temperatures().items():
-            for e in entries:
-                if e.current > cpu_temp: cpu_temp = int(e.current)
+        all_temps = psutil.sensors_temperatures() or {}
+        cpu_keys = {"k10temp", "coretemp", "cpu_thermal", "acpitz"}
+        gpu_keys = {"amdgpu", "radeon", "nouveau"}
+        for name, entries in all_temps.items():
+            nl = name.lower()
+            if any(k in nl for k in cpu_keys):
+                for e in entries:
+                    if e.current and e.current > cpu_temp:
+                        cpu_temp = int(e.current)
+            elif any(k in nl for k in gpu_keys):
+                for e in entries:
+                    if e.current and e.current > gpu_temp_psutil:
+                        gpu_temp_psutil = int(e.current)
+        if not cpu_temp:
+            for name, entries in all_temps.items():
+                if name.lower() not in {"nvme", "mt7925_phy0"} and "phy" not in name.lower():
+                    for e in entries:
+                        if e.current and e.current > cpu_temp:
+                            cpu_temp = int(e.current)
     except: pass
     mem = psutil.virtual_memory()
     disks = _get_disk_stats()
@@ -1050,20 +1109,24 @@ def get_system_stats():
                     "vram_used":round(float(p[3])/1024,1),"vram_total":round(float(p[4])/1024,1),
                     "power":int(float(p[5]))}
     except: pass
+    if gpu["temp"] == 0 and gpu_temp_psutil:
+        gpu["temp"] = gpu_temp_psutil
     cpu_name = "Unknown"
     try:
         with open("/proc/cpuinfo") as f:
             for line in f:
                 if "model name" in line: cpu_name = line.split(":")[1].strip(); break
     except: pass
-    net = psutil.net_io_counters()
+    per_nic = psutil.net_io_counters(pernic=True)
+    net_sent = sum(c.bytes_sent for n, c in per_nic.items() if n != 'lo')
+    net_recv = sum(c.bytes_recv for n, c in per_nic.items() if n != 'lo')
     now = time.time()
     if _net_prev["ts"] > 0:
         dt = now - _net_prev["ts"]
         if dt > 0:
-            _net_rate["up_mbps"] = round(((net.bytes_sent - _net_prev["sent"])*8)/(dt*1_000_000), 2)
-            _net_rate["down_mbps"] = round(((net.bytes_recv - _net_prev["recv"])*8)/(dt*1_000_000), 2)
-    _net_prev = {"ts": now, "sent": net.bytes_sent, "recv": net.bytes_recv}
+            _net_rate["up_mbps"] = round(((net_sent - _net_prev["sent"])*8)/(dt*1_000_000), 2)
+            _net_rate["down_mbps"] = round(((net_recv - _net_prev["recv"])*8)/(dt*1_000_000), 2)
+    _net_prev = {"ts": now, "sent": net_sent, "recv": net_recv}
     return {
         "cpu": {"name":cpu_name,"usage":round(cpu_pct,1),"temp":cpu_temp,
             "cores":psutil.cpu_count(logical=True),"freq":round(cpu_freq.current) if cpu_freq else 0},
@@ -1956,9 +2019,56 @@ async def create_server(request: Request):
 
 @app.get("/api/system/diagnostics")
 async def system_diagnostics(request: Request):
-    if current_user(request).get("role") != "owner":
-        return JSONResponse({"error": "Owner only"}, status_code=403)
+    u = current_user(request)
+    if not u.get("username"):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
     return _run_diagnostics()
+
+_AUTO_FIX_HANDLERS: dict = {}
+
+def _register_fix(check_id: str):
+    def decorator(fn):
+        _AUTO_FIX_HANDLERS[check_id] = fn
+        return fn
+    return decorator
+
+@_register_fix("panel_data_writable")
+def _fix_panel_data_writable():
+    user = getpass.getuser()
+    r = subprocess.run(
+        ["sudo", "chown", "-R", f"{user}:{user}", str(PANEL_DATA)],
+        capture_output=True, timeout=10
+    )
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr.decode(errors="ignore").strip() or "chown failed")
+
+@_register_fix("aigm_bridge_service")
+def _fix_aigm_bridge_service():
+    r = subprocess.run(
+        ["sudo", "systemctl", "restart", "aigm-bridge"],
+        capture_output=True, timeout=15
+    )
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr.decode(errors="ignore").strip() or "systemctl restart failed")
+
+
+_FIX_ALLOWED_ROLES = {"owner", "head_admin", "admin"}
+
+@app.post("/api/system/fix/{check_id}")
+async def system_fix(check_id: str, request: Request):
+    u = current_user(request)
+    if not u.get("username"):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    if u.get("role") not in _FIX_ALLOWED_ROLES:
+        return JSONResponse({"error": "Admin access required"}, status_code=403)
+    handler = _AUTO_FIX_HANDLERS.get(check_id)
+    if not handler:
+        return JSONResponse({"error": f"No auto-fix available for '{check_id}'"}, status_code=404)
+    try:
+        await asyncio.to_thread(handler)
+        return {"ok": True, "check_id": check_id}
+    except Exception as e:
+        return JSONResponse({"error": str(e), "check_id": check_id}, status_code=500)
 
 @app.post("/api/servers/{server_id}/provision")
 async def provision_server(server_id: int, request: Request):
@@ -4965,7 +5075,6 @@ async def remove_crontab(request: Request):
 
 SETTINGS_FILE    = PANEL_DATA / "settings.json"
 SETTINGS_DEFAULTS = {
-    "uploadCapMbps": 120.0,
     "ipqs_api_key": "",
     "discord_client_id": "",
     "discord_client_secret": "",
@@ -5160,7 +5269,7 @@ async def aigm_chat(request: Request):
             return (await c.post(f"{BRIDGE}/api/chat", json=await request.json())).json()
     except Exception as e: return {"error": str(e), "reply": "Bridge not running."}
 
-AIGM_BRIDGE_PATH = Path(os.environ.get("AIGM_BRIDGE_PATH", str(Path.home() / "AIGameMaster" / "AIGameMaster" / "bridge.py")))
+AIGM_BRIDGE_PATH = Path(os.path.expanduser(os.environ.get("AIGM_BRIDGE_PATH", str(Path.home() / "AIGameMaster" / "AIGameMaster" / "bridge.py"))))
 
 @app.get("/api/aigm/status")
 async def aigm_status(request: Request):

@@ -9,6 +9,8 @@ const STATUS_META = {
   fail: { label: 'FAIL', symbol: '■' },
 }
 
+const AUTO_FIXABLE = new Set(['panel_data_writable', 'aigm_bridge_service'])
+
 const statusColor = (C, status) =>
   status === 'ok'   ? C.accent
   : status === 'warn' ? C.orange
@@ -21,6 +23,8 @@ export default function System({toast, authUser}){
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [copiedId, setCopiedId] = useState('')
+  const [fixing, setFixing] = useState({})
+  const [fixResult, setFixResult] = useState({})
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -28,7 +32,7 @@ export default function System({toast, authUser}){
     try {
       const r = await fetch(`${API}/system/diagnostics`, {headers: authHeaders()})
       if (r.status === 401) { on401(); return }
-      if (r.status === 403) { setError('Owner only'); setReport(null); return }
+      if (r.status === 403) { setError('Access denied'); setReport(null); return }
       const j = await r.json()
       if (j.error) { setError(j.error); setReport(null); return }
       setReport(j)
@@ -56,13 +60,29 @@ export default function System({toast, authUser}){
     }
   }
 
-  if (authUser?.role !== 'owner') {
-    return <div className="space-y-3">
-      <h2 className="font-black" style={{color: C.textBright, fontSize: sz.base + 4}}>System Health</h2>
-      <Card className="p-6">
-        <div style={{color: C.textMuted, fontSize: sz.base}}>Owner access required.</div>
-      </Card>
-    </div>
+  const fix = async (checkId) => {
+    setFixing(f => ({...f, [checkId]: true}))
+    setFixResult(r => ({...r, [checkId]: null}))
+    try {
+      const r = await fetch(`${API}/system/fix/${checkId}`, {
+        method: 'POST',
+        headers: authHeaders(),
+      })
+      const j = await r.json()
+      if (j.ok) {
+        setFixResult(fr => ({...fr, [checkId]: {ok: true}}))
+        toast?.('Fix applied — refreshing…')
+        setTimeout(load, 1200)
+      } else {
+        setFixResult(fr => ({...fr, [checkId]: {error: j.error || 'Fix failed'}}))
+        toast?.(j.error || 'Fix failed', 'danger')
+      }
+    } catch (e) {
+      setFixResult(fr => ({...fr, [checkId]: {error: e.message}}))
+      toast?.(e.message, 'danger')
+    } finally {
+      setFixing(f => ({...f, [checkId]: false}))
+    }
   }
 
   const overall = report?.overall || (loading ? 'loading' : 'fail')
@@ -108,6 +128,8 @@ export default function System({toast, authUser}){
       {report.checks.map(c => {
         const color = statusColor(C, c.status)
         const meta = STATUS_META[c.status] || {label: c.status.toUpperCase(), symbol: '?'}
+        const canFix = AUTO_FIXABLE.has(c.id) && c.status !== 'ok'
+        const fr = fixResult[c.id]
         return <Card key={c.id} className="p-4">
           <div className="flex items-start gap-3 flex-wrap">
             <div className="flex items-center gap-2" style={{minWidth: 70}}>
@@ -117,15 +139,24 @@ export default function System({toast, authUser}){
             <div className="flex-1 min-w-0">
               <div className="font-bold" style={{color: C.textBright, fontSize: sz.base}}>{c.label}</div>
               {c.detail && <div className="font-mono mt-1" style={{color: C.textMuted, fontSize: sz.stat, wordBreak: 'break-all'}}>{c.detail}</div>}
-              {c.fix && <div className="mt-2 flex items-center gap-2 flex-wrap">
-                <div className="font-mono px-2 py-1 rounded" style={{
-                  background: C.bgInput, color: C.textBright, fontSize: sz.stat,
-                  border: `1px solid ${C.border}`
-                }}>{c.fix}</div>
-                <Btn small v="ghost" onClick={() => copy(c.fix, c.id)}>
-                  {copiedId === c.id ? 'Copied' : 'Copy'}
-                </Btn>
-              </div>}
+              {fr?.error && <div className="mt-1 font-mono" style={{color: C.red, fontSize: sz.stat}}>{fr.error}</div>}
+              <div className="mt-2 flex items-center gap-2 flex-wrap">
+                {canFix && <Btn small v="primary" onClick={() => fix(c.id)} disabled={fixing[c.id]}>
+                  {fixing[c.id] ? 'Fixing…' : 'Fix'}
+                </Btn>}
+                {c.fix && !canFix && <>
+                  <div className="font-mono px-2 py-1 rounded" style={{
+                    background: C.bgInput, color: C.textBright, fontSize: sz.stat,
+                    border: `1px solid ${C.border}`
+                  }}>{c.fix}</div>
+                  <Btn small v="ghost" onClick={() => copy(c.fix, c.id)}>
+                    {copiedId === c.id ? 'Copied' : 'Copy'}
+                  </Btn>
+                </>}
+                {c.fix && canFix && <Btn small v="ghost" onClick={() => copy(c.fix, c.id)}>
+                  {copiedId === c.id ? 'Copied' : 'Copy cmd'}
+                </Btn>}
+              </div>
             </div>
           </div>
         </Card>
