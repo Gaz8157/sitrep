@@ -2,6 +2,27 @@
 
 ---
 
+## 2026-04-11 (7)
+
+### tools/player-tracker/install.sh
+- Added Arma server profile path prompt — operator enters local path or leaves blank if Arma is on a different machine
+- Writes `$ARMA_PROFILE_PATH/PlayerTracker/config.cfg` automatically when a local path is given
+- Saves `ARMA_PROFILE_PATH` to panel `.env` so future installs skip the prompt
+- Setup instructions now show "config file written" confirmation or fallback with file content to copy manually
+
+### tools/player-tracker/README.md
+- Documented config file approach as the recommended setup
+- Workbench method kept as alternative for remote Arma servers
+- Updated install step list to reflect new profile path prompt
+
+### PlayerTracker mod — Mod/Scripts/Game/PlayerTracker/PlayerTrackerComponent.c
+- Added `LoadProfileConfig()` — reads `$profile:PlayerTracker/config.cfg` at startup and overrides `m_sWebhookBaseUrl` and `m_sApiKey` if the file exists
+- Config file format: simple `key=value` per line, `#` comments supported
+- Falls back silently to Workbench attribute values if no config file present
+- Called at start of `OnPostInit` before `RestContext` is created
+
+---
+
 ## 2026-04-11 (6)
 
 ### frontend/src/tabs/AiGm.jsx

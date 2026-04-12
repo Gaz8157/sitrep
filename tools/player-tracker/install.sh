@@ -76,9 +76,65 @@ else
     warn "  curl http://localhost:8000/api/tracker/status"
 fi
 
-# Print setup instructions
+# Read panel URL
 PANEL_URL=$(grep "^PANEL_URL=" "$ENV_FILE" 2>/dev/null | cut -d= -f2- || echo "http://YOUR_SERVER_IP:8000")
+PANEL_URL="${PANEL_URL%/}"
 
+# ── Arma server profile path ────────────────────────────────────────────────
+echo ""
+info "Arma server profile path setup"
+info "The mod reads \$profile:PlayerTracker/config.cfg to find your panel."
+info "If your Arma server is on THIS machine, enter the profile path below."
+info "If it's on a different machine, leave blank — you'll get a file to copy."
+echo ""
+
+# Check if a path was previously saved
+SAVED_PROFILE=$(grep "^ARMA_PROFILE_PATH=" "$ENV_FILE" 2>/dev/null | cut -d= -f2- || true)
+
+DEFAULT_HINT=""
+if [[ -n "$SAVED_PROFILE" ]]; then
+    DEFAULT_HINT=" [${SAVED_PROFILE}]"
+fi
+
+ARMA_PROFILE=""
+if [ -t 0 ]; then
+    read -rp "  Arma profile path${DEFAULT_HINT}: " ARMA_PROFILE
+elif [ -e /dev/tty ]; then
+    read -rp "  Arma profile path${DEFAULT_HINT}: " ARMA_PROFILE < /dev/tty
+fi
+
+ARMA_PROFILE="${ARMA_PROFILE:-$SAVED_PROFILE}"
+
+CONFIG_WRITTEN=false
+
+if [[ -n "$ARMA_PROFILE" ]]; then
+    CONFIG_DIR="${ARMA_PROFILE%/}/PlayerTracker"
+    CONFIG_FILE="$CONFIG_DIR/config.cfg"
+
+    mkdir -p "$CONFIG_DIR" 2>/dev/null || true
+
+    if [[ -d "$CONFIG_DIR" ]]; then
+        cat > "$CONFIG_FILE" <<EOF
+# PlayerTracker config — written by SITREP panel installer
+# Trailing slash required on url
+url=${PANEL_URL}/
+api_key=${TRACKER_KEY}
+EOF
+        success "Config written to $CONFIG_FILE"
+        CONFIG_WRITTEN=true
+
+        # Save path to panel .env for future runs
+        if ! grep -q "^ARMA_PROFILE_PATH=" "$ENV_FILE"; then
+            echo "ARMA_PROFILE_PATH=${ARMA_PROFILE%/}" >> "$ENV_FILE"
+        else
+            sed -i "s|^ARMA_PROFILE_PATH=.*|ARMA_PROFILE_PATH=${ARMA_PROFILE%/}|" "$ENV_FILE"
+        fi
+    else
+        warn "Could not create $CONFIG_DIR — check the path and permissions."
+    fi
+fi
+
+# Print setup instructions
 echo ""
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${GREEN}  Player Tracker ready!${NC}"
@@ -86,16 +142,29 @@ echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━
 echo ""
 echo -e "  ${BOLD}API key:${NC}  ${CYAN}${TRACKER_KEY}${NC}"
 echo ""
-echo -e "  ${BOLD}Arma Reforger Workbench setup:${NC}"
-echo -e "  1. Add Workshop mod ${BOLD}691608368426C1F2${NC} to your server's mod list"
-echo -e "  2. Open your scenario, select the game mode entity"
-echo -e "  3. Find the ${BOLD}PlayerTrackerComponent${NC} attributes and set:"
-echo -e "     ${BOLD}Webhook base URL:${NC}  ${PANEL_URL}/"
-echo -e "     ${BOLD}API key:${NC}           ${TRACKER_KEY}"
-echo -e "  4. Save and restart the Arma server"
+echo -e "  ${BOLD}Step 1:${NC} Add Workshop mod ${BOLD}691608368426C1F2${NC} to your server's mod list"
 echo ""
-echo -e "  The ${BOLD}Tracker${NC} tab will appear in the panel sidebar"
-echo -e "  within 8 seconds of the first mod POST."
+
+if [[ "$CONFIG_WRITTEN" == "true" ]]; then
+    echo -e "  ${BOLD}Step 2:${NC} Config file written — no Workbench setup needed."
+    echo -e "          The mod will read: ${CYAN}${CONFIG_FILE}${NC}"
+else
+    echo -e "  ${BOLD}Step 2:${NC} Drop this config file on your Arma server at:"
+    echo -e "          ${CYAN}\$profile:PlayerTracker/config.cfg${NC}"
+    echo ""
+    echo -e "  ${BOLD}File contents:${NC}"
+    echo -e "  ${CYAN}# PlayerTracker config"
+    echo -e "  url=${PANEL_URL}/"
+    echo -e "  api_key=${TRACKER_KEY}${NC}"
+    echo ""
+    echo -e "  ${BOLD}Or${NC} configure via Workbench (PlayerTrackerComponent attributes):"
+    echo -e "     ${BOLD}Webhook base URL:${NC}  ${PANEL_URL}/"
+    echo -e "     ${BOLD}API key:${NC}           ${TRACKER_KEY}"
+fi
+
+echo ""
+echo -e "  ${BOLD}Step 3:${NC} Start your Arma server — the ${BOLD}Tracker${NC} tab appears in the"
+echo -e "          panel sidebar within 8 seconds of the first mod POST."
 echo ""
 echo -e "  Verify: ${CYAN}curl http://localhost:8000/api/tracker/status${NC}"
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
