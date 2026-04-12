@@ -2,6 +2,15 @@
 
 ---
 
+## 2026-04-11 (4)
+
+### install.sh
+- Installer now always prompts for `PANEL_URL` with the default pre-filled — press Enter to accept, or type a custom URL
+- Fixed piped installs (`curl | bash`) silently skipping the prompt: now reads from `/dev/tty` so the prompt appears even when stdin is a pipe
+- Falls back to default silently only in truly non-interactive environments (no `/dev/tty`)
+
+---
+
 ## 2026-04-11
 
 ### Summary

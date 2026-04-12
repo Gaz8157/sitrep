@@ -267,21 +267,23 @@ if [[ ! -f "$INSTALL_DIR/.env" ]]; then
     DEFAULT_URL="http://${LOCAL_IP}:8000"
     [[ "$IS_WSL" == "true" ]] && DEFAULT_URL="http://localhost:8000"
 
-    # On WSL, piped installs (curl | bash) have no interactive terminal —
-    # auto-accept the default instead of hanging on a read prompt.
-    if [[ "$IS_WSL" == "true" ]] || ! [ -t 0 ]; then
-        PANEL_URL="$DEFAULT_URL"
-        info "PANEL_URL set to: $PANEL_URL"
-        info "To change it: edit $INSTALL_DIR/.env and run: sudo systemctl restart sitrep-api"
-    else
-        echo ""
-        info "Set your panel URL (how users will access it):"
-        echo -e "  ${BOLD}Local network:${NC}  http://${LOCAL_IP}:8000"
-        echo -e "  ${BOLD}With domain:${NC}    https://panel.yourdomain.com"
-        echo ""
+    echo ""
+    info "Set your panel URL (press Enter to keep the default):"
+    echo -e "  ${BOLD}Default:${NC}        $DEFAULT_URL"
+    echo -e "  ${BOLD}Local network:${NC}  http://${LOCAL_IP}:8000"
+    echo -e "  ${BOLD}With domain:${NC}    https://panel.yourdomain.com"
+    echo ""
+    # Read from /dev/tty so the prompt works even in piped installs (curl | bash)
+    if [ -t 0 ]; then
         read -rp "PANEL_URL [$DEFAULT_URL]: " PANEL_URL
-        PANEL_URL="${PANEL_URL:-$DEFAULT_URL}"
+    elif [ -e /dev/tty ]; then
+        read -rp "PANEL_URL [$DEFAULT_URL]: " PANEL_URL < /dev/tty
+    else
+        PANEL_URL=""
+        info "Non-interactive install — using default URL."
     fi
+    PANEL_URL="${PANEL_URL:-$DEFAULT_URL}"
+    success "PANEL_URL set to: $PANEL_URL"
     # Generate a random PlayerTracker mod auth key. Localhost mod POSTs bypass
     # the check, but remote mods (e.g. Arma server on a different box than the
     # panel) need this to match between .env and the mod config. Auto-gen here
