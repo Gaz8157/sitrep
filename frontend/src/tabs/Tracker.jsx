@@ -863,7 +863,7 @@ function ModSetupTab({ C, sz }) {
           If your Arma server is on a different machine, drop this file at <span style={{ fontFamily: 'monospace', color: C.accent }}>$profile:PlayerTracker/config.cfg</span> manually:
         </div>
         <pre style={{ background: C.bgInput, border: `1px solid ${C.border}`, borderRadius: 5, padding: '8px 10px', fontSize: sz.stat - 1, color: C.text, margin: 0, overflowX: 'auto' }}>
-{`# PlayerTracker config\nurl=${setup?.panel_url || 'https://yourpanel.com'}/\napi_key=${setup?.api_key_set ? '<your key — reveal in Receiver tab>' : 'NOT SET'}`}
+{`# PlayerTracker config\nurl=${setup?.panel_url || 'https://yourpanel.com'}/\napi_key=${setup?.api_key_set ? '<your key — reveal in Receiver tab>' : 'NOT SET'}\ntrack_path=api/tracker/track\nevent_path=api/tracker/event\nupdate_interval=10`}
         </pre>
       </div>
     </div>

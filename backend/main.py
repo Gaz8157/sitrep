@@ -6396,6 +6396,9 @@ async def tracker_mod_setup_post(request: Request):
             "# Trailing slash required on url\n"
             f"url={PANEL_URL}/\n"
             f"api_key={PLAYERTRACKER_API_KEY}\n"
+            "track_path=api/tracker/track\n"
+            "event_path=api/tracker/event\n"
+            "update_interval=10\n"
         )
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
