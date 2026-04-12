@@ -58,7 +58,7 @@ else
 fi
 
 # systemd service
-PANEL_USER=$(id -un)
+PANEL_USER="${SUDO_USER:-$(id -un)}"
 cat > /tmp/${SERVICE_NAME}.service <<EOF
 [Unit]
 Description=AI Game Master Bridge

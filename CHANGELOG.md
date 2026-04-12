@@ -1,5 +1,23 @@
 # SITREP Panel Changelog
 
+## 2026-04-11 (3)
+
+### tools/player-tracker/install.sh (new)
+- Created tracker setup script: auto-locates panel `.env`, checks/generates `PLAYERTRACKER_API_KEY`, restarts `sitrep-api` if key was newly written, verifies endpoint is reachable, prints API key and Workbench setup instructions
+- Supports `PANEL_DIR=` override for non-default install locations
+- Reads `PANEL_URL` from `.env` to show the correct webhook base URL
+
+### tools/player-tracker/README.md
+- Rewritten: documents requirements, install command, Workbench setup table, and link to main README
+
+### tools/aigm/install.sh
+- Fixed `PANEL_USER=$(id -un)` → `${SUDO_USER:-$(id -un)}` so service runs as the correct user when installer is invoked with sudo
+
+### Backup
+- `/home/mark/backups/sitrep-panel-2026-04-11-pre-installers.tar.gz`
+
+---
+
 ## 2026-04-11 (2)
 
 ### backend/main.py
