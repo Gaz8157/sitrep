@@ -328,36 +328,52 @@ The Tracker tab shows live player positions, 8/10-digit MGRS grid references, pl
 
 The tab is hidden by default. It only appears for owner / head_admin / admin accounts, and only while the mod is actively reporting (disappears within 90 seconds of the mod going silent or the server restarting).
 
-### Prerequisites
+### Step 1 — Run the installer
 
-| Requirement | Notes |
-|-------------|-------|
-| PlayerTracker mod | Workshop mod ID `691608368426C1F2` — add to your server |
-
-### Step 1 — Add the PlayerTracker mod to your Arma server
-
-Search the Arma Reforger Workshop for **PlayerTracker** (mod ID `691608368426C1F2`) and add it to your server's mod list via the **Mods** tab in the panel, then restart the server.
-
-### Step 2 — Generate an API key
-
-In the panel go to **Tracker → Settings → Receiver** and click **Rotate key**. Copy the key that appears.
-
-Alternatively, add it manually to `/opt/panel/.env` and restart:
-```
-PLAYERTRACKER_API_KEY=your_random_key_here
+```bash
+sudo bash /opt/panel/tools/player-tracker/install.sh
 ```
 
-### Step 3 — Set the key in Workbench
+This will:
+- Generate a unique `PLAYERTRACKER_API_KEY` and save it to `/opt/panel/.env`
+- Restart the panel service to apply the key
+- Ask for your Arma server profile path and write the mod config file automatically
+- Print your key and setup instructions
 
-Open your scenario in Arma Reforger Workbench, select the game mode entity, and find the **PlayerTrackerComponent** attributes. Set:
-- **Webhook base URL** — `http://YOUR_SERVER_IP:8000/` (trailing slash required)
-- **API key** — the key you generated in Step 2
+### Step 2 — Add the mod to your Arma server
 
-The mod will begin POSTing player snapshots every 10 seconds (configurable) and instant events on kills, joins, and spawns.
+Add Workshop mod **`691608368426C1F2`** (PlayerTracker) to your server's mod list via the **Mods** tab in the panel, then restart the server.
 
-### Step 4 — Verify
+On first startup the mod creates `$profile:PlayerTracker/config.cfg` in your Arma profile folder with placeholder values. The installer (or the panel's Mod Setup tab) overwrites this with your real panel URL and API key.
 
-The **Tracker** tab will appear in the sidebar within 8 seconds of the first successful POST. Check the status endpoint if it doesn't show up:
+### Step 3 — Write the mod config
+
+The mod reads its panel URL and API key from `$profile:PlayerTracker/config.cfg`. Two ways to write it:
+
+**If Arma is on the same machine as the panel:**
+The installer handles this automatically when you provide the profile path. You can also do it from the panel at any time: **Tracker → ⚙ → Mod Setup** — enter the profile path and click **Write Config File**.
+
+**If Arma is on a different machine:**
+The installer prints the config file contents. Copy them to `$profile:PlayerTracker/config.cfg` on the Arma server:
+
+```
+# PlayerTracker config
+url=https://YOUR_PANEL_URL/
+api_key=YOUR_GENERATED_KEY
+track_path=api/tracker/track
+event_path=api/tracker/event
+update_interval=10
+```
+
+Your panel URL and generated key are printed by the installer. The key can also be revealed in the panel at **Tracker → ⚙ → Receiver**.
+
+### Step 4 — Restart the Arma server
+
+After writing the config file, restart the Arma server so the mod picks up the new values.
+
+### Step 5 — Verify
+
+The **Tracker** tab appears in the sidebar within 8 seconds of the first successful POST. If it doesn't show up:
 ```bash
 curl http://localhost:8000/api/tracker/status
 ```
