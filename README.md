@@ -31,7 +31,7 @@ Built with FastAPI + React.
 
 ### Optional modules
 - **AI Game Master** — LLM-driven game master; spawns enemies, adjusts difficulty, reacts to players in real time (requires mod ID `68E44E4AE677D389` + bridge setup)
-- **Player Tracker** — live player positions, 8/10-digit MGRS grids, AAR replay, Mercury Enable / ATAK feed (requires mod ID `691608368426C1F2`)
+- **Player Tracker** — live player positions, 8/10-digit MGRS grids, player status, faction, squad, and nearest location (requires mod ID `691608368426C1F2`)
 - **System** — owner-only self-diagnostics with 10 health checks and traffic-light status
 
 ### Platform
@@ -335,7 +335,7 @@ The **AI Game Master** tab in the panel will show **ONLINE** once the bridge is 
 
 ## Player Tracker (Optional)
 
-The Tracker tab shows live player positions, 8/10-digit MGRS grid references, After-Action Review (AAR) replay data, and a feed compatible with ATAK and Mercury Enable for real-time blue-force tracking. It requires one server-side Arma Reforger mod — no relay process needed. The mod posts directly to the panel's ingest endpoints.
+The Tracker tab shows live player positions, 8/10-digit MGRS grid references, player status, faction, squad, and nearest location. It requires one server-side Arma Reforger mod — no relay process needed. The mod posts directly to the panel's ingest endpoints.
 
 The tab is hidden by default. It only appears for owner / head_admin / admin accounts, and only while the mod is actively reporting (disappears within 90 seconds of the mod going silent or the server restarting).
 
@@ -517,10 +517,9 @@ Run this to remove every file installed by SITREP and the Arma Reforger server i
 
 ```bash
 # Stop and remove all SITREP services
-sudo systemctl disable --now sitrep-api sitrep-web sitrep-tracker 2>/dev/null
+sudo systemctl disable --now sitrep-api sitrep-web 2>/dev/null
 sudo rm -f /etc/systemd/system/sitrep-api.service
 sudo rm -f /etc/systemd/system/sitrep-web.service
-sudo rm -f /etc/systemd/system/sitrep-tracker.service
 
 # Stop and remove AI GM bridge
 sudo systemctl disable --now aigm-bridge 2>/dev/null
